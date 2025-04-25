@@ -1,0 +1,8 @@
+- Group by
+- 将原本NaviBar的导航功能放入到userButton中
+- VNsRow.tsx
+- SexRow.tsx
+- TraitsRows.tsx
+- DescriptionRow.tsx
+- electron:build is not working
+- 去除context中的sortOrder

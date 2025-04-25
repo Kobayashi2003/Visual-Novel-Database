@@ -1,0 +1,13 @@
+appId: "com.kobayashi.vndb"
+productName: "VNDB"
+directories:
+  output: "build"
+win:
+  target: ["dir", "portable", "zip"]
+  icon: "public/icon.ico"
+linux:
+  target: ["dir", "appimage", "zip"]
+  icon: "public/icon.png"
+mac:
+  target: ["dir", "dmg", "zip"]
+  icon: "public/icon.icns"
