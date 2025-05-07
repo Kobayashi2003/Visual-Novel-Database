@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { useSearchContext } from "@/context/SearchContext"
 
@@ -31,12 +31,13 @@ export function SearchHeader({ hidden = false, className }: SearchHeaderProps) {
     pathname.match(/^\/[vrcpsgi](\?|$)/) !== null
   )
 
-  const { searchFrom, searchType, sortBy, sortOrder,
-    setSearchFrom, setSearchType, setSortBy, setSortOrder } = useSearchContext()
+  const { searchFrom, searchType, sortBy,
+    setSearchFrom, setSearchType, setSortBy } = useSearchContext()
 
   const router = useRouter()
   const [loading, setLoading] = useState(false)
 
+  const [sortOrder, setSortOrder] = useState("desc")
   const [searchQuery, setSearchQuery] = useState("")
   const [filtersParams, setFiltersParams] = useState<Record<string, string>>({})
   const [filtersDialogOpen, setFiltersDialogOpen] = useState(false)
@@ -56,6 +57,12 @@ export function SearchHeader({ hidden = false, className }: SearchHeaderProps) {
     router.push(`/${searchType}?${searchParams.toString()}`)
     setLoading(false)
   }
+
+  useEffect(() => {
+    if (isSearching) {
+      handleSubmit()
+    }
+  }, [sortOrder])
 
   return (
     <div className={cn("flex flex-row justify-center items-center gap-1", className)}>
@@ -112,7 +119,7 @@ export function SearchHeader({ hidden = false, className }: SearchHeaderProps) {
       />
       <OrderSwitch
         order={sortOrder}
-        setOrder={setSortOrder}
+        setOrder={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
         disabled={loading || hidden}
       />
       <Settings2Button

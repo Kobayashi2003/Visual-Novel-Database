@@ -21,11 +21,13 @@ def hello_world():
 
 
 from .operations import (
-    is_marked, create_user, update_user, delete_user, change_password,
-    get_category, create_category, update_category, delete_category,
-    clear_category, add_mark_to_category, remove_mark_from_category,
-    contains_mark, search_categories, get_user_by_username,
-    get_marks_from_category_without_pagination, get_categories_by_mark
+    get_user, create_user, update_user, delete_user, change_password, get_user_by_username,
+    get_category, create_category, update_category, delete_category, clear_category, search_categories,
+    get_categories_by_mark, contains_mark, is_marked, are_marked,
+    add_mark_to_category, remove_mark_from_category,
+    add_marks_to_category, remove_marks_from_category,
+    move_marks_to_category, get_marks_from_category,
+    get_marks_from_category_without_pagination, 
 )
 
 
@@ -95,19 +97,17 @@ def delete_user_route(username):
         return jsonify(message="Delete failed"), 400
     return jsonify(message="User deleted"), 200
 
-@api_bp.route('/u<uername>/change_password', methods=['POST'])
+@api_bp.route('/change_password', methods=['POST'])
 @jwt_required()
-def change_password_route(username):
-    current_user_id = get_jwt_identity()
-    user = get_user_by_username(username)
+def change_password_route():
+    user_id = get_jwt_identity()
+    user = get_user(user_id)
     if not user:
         return jsonify(error="User not found"), 400
-    if current_user_id != user.id:
-        return jsonify(error="Unauthorized"), 403
     data = request.json
-    user = change_password(user.id, data['old_password'], data['new_password'])
+    user = change_password(user_id, data['old_password'], data['new_password'])
     if not user:
-        return jsonify(error="Invaild old password"), 400
+        return jsonify(error="Invalid old password"), 400
     return jsonify(message="Password changed successfully"), 200
 
 
@@ -177,16 +177,23 @@ def contains_mark_route(type, category_id, mark_id):
 def add_mark_route(type, category_id):
     user_id = get_jwt_identity()
     data = request.json
-    category = add_mark_to_category(user_id, category_id, type, data['mark_id'])
+    if 'mark_ids' in data:
+        category = add_marks_to_category(user_id, category_id, type, data['mark_ids'])
+    else:
+        category = add_mark_to_category(user_id, category_id, type, data['mark_id'])
     if category:
         return jsonify(dict(category)), 201
     return jsonify(error="Failed to add mark"), 400
 
-@api_bp.route('/<string:type>/c<int:category_id>/m<int:mark_id>', methods=['DELETE'])
+@api_bp.route('/<string:type>/c<int:category_id>/m', methods=['DELETE'])
 @jwt_required()
-def remove_mark_route(type, category_id, mark_id):
+def remove_mark_route(type, category_id):
     user_id = get_jwt_identity()
-    category = remove_mark_from_category(user_id, category_id, type, mark_id)
+    data = request.json
+    if 'mark_ids' in data:
+        category = remove_marks_from_category(user_id, category_id, type, data['mark_ids'])
+    else:
+        category = remove_mark_from_category(user_id, category_id, type, data['mark_id'])
     if category:
         return jsonify(dict(category)), 200
     return jsonify(error="Failed to remove mark"), 400
@@ -198,23 +205,37 @@ def get_marks_route(type, category_id):
     marks = get_marks_from_category_without_pagination(user_id, category_id, type)
     return jsonify(marks), 200
 
-
-@api_bp.route('/<string:type>/m<int:mark_id>/is_marked', methods=['GET'])
+@api_bp.route('/<string:type>/c/m', methods=['PUT'])
 @jwt_required()
-def check_if_mark_exists_route(type, mark_id):
+def move_marks_route(type):
     user_id = get_jwt_identity()
-    isMarked = is_marked(user_id, type, mark_id)
-    return jsonify(isMarked=isMarked), 200
+    data = request.json
+    category_from_id = data['category_from_id']
+    category_to_id = data['category_to_id']
+    if category_from_id == category_to_id:
+        return jsonify(error="Category from and to are the same"), 400
+    category_from, category_to = move_marks_to_category(user_id, category_from_id, category_to_id, type, data['mark_ids'])
+    if category_from and category_to:
+        return jsonify({'category_from': dict(category_from), 'category_to': dict(category_to)}), 200
+    return jsonify(error="Failed to move marks"), 400
+
 
 @api_bp.route('/<string:type>/m/is_marked', methods=['POST'])
 @jwt_required()
-def check_if_marks_exist_route(type):
+def is_marked_route(type):
+    user_id = get_jwt_identity()
+    data = request.json
+    markId = data['mark_id']
+    isMarked = is_marked(user_id, type, markId)
+    return jsonify(isMarked=isMarked), 200
+
+@api_bp.route('/<string:type>/m/are_marked', methods=['POST'])
+@jwt_required()
+def are_marked_route(type):
     user_id = get_jwt_identity()
     data = request.json
     markIds = data['mark_ids']
-    isMarked = {}
-    for mark_id in markIds:
-        isMarked[mark_id] = is_marked(user_id, type, mark_id)
+    isMarked = are_marked(user_id, type, markIds)
     return jsonify(isMarked=isMarked), 200
 
 @api_bp.route('/<string:type>/m<int:mark_id>/c', methods=['GET'])

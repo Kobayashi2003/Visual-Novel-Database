@@ -315,8 +315,8 @@ export const api = {
       return await fetchUserserve<User>(`u${old_username}`, "PUT", { username: new_username }, abortSignal)
     },
 
-    changePassword: async (username: string, oldPassword: string, newPassword: string, abortSignal?: AbortSignal) => {
-      return await fetchUserserve<User>(`u${username}/change_password`, "POST", { old_password: oldPassword, new_password: newPassword }, abortSignal)
+    changePassword: async (oldPassword: string, newPassword: string, abortSignal?: AbortSignal) => {
+      return await fetchUserserve<User>(`change_password`, "POST", { old_password: oldPassword, new_password: newPassword }, abortSignal)
     },
   },
 
@@ -346,11 +346,23 @@ export const api = {
     },
 
     removeMark: async (type: string, categoryId: number, markId: number, abortSignal?: AbortSignal) => {
-      return await fetchUserserve<Category>(`${type}/c${categoryId}/m${markId}`, "DELETE", undefined, abortSignal)
+      return await fetchUserserve<Category>(`${type}/c${categoryId}/m`, "DELETE", { mark_id: markId }, abortSignal)
+    },
+
+    addMarks: async (type: string, categoryId: number, markIds: number[], abortSignal?: AbortSignal) => {
+      return await fetchUserserve<Category>(`${type}/c${categoryId}/m`, "POST", { mark_ids: markIds }, abortSignal)
+    },
+
+    removeMarks: async (type: string, categoryId: number, markIds: number[], abortSignal?: AbortSignal) => {
+      return await fetchUserserve<Category>(`${type}/c${categoryId}/m`, "DELETE", { mark_ids: markIds }, abortSignal)
+    },
+
+    moveMarks: async (type: string, categoryFromId: number, categoryToId: number, markIds: number[], abortSignal?: AbortSignal) => {
+      return await fetchUserserve<{ category_from: Category, category_to: Category }>(`${type}/c/m`, "PUT", { category_from_id: categoryFromId, category_to_id: categoryToId, mark_ids: markIds }, abortSignal)
     },
 
     clearMarks: async (type: string, categoryId: number, abortSignal?: AbortSignal) => {
-      return await fetchUserserve<{ message: string }>(`${type}/c${categoryId}/m`, "DELETE", undefined, abortSignal)
+      return await fetchUserserve<{ message: string }>(`${type}/c${categoryId}/clear`, "POST", undefined, abortSignal)
     },
 
     getMarks: async (type: string, categoryId: number, abortSignal?: AbortSignal) => {
@@ -360,11 +372,11 @@ export const api = {
 
   mark: {
     isMarked: async (type: string, markId: number, abortSignal?: AbortSignal) => {
-      return await fetchUserserve<{ isMarked: boolean }>(`${type}/m${markId}/is_marked`, "GET", undefined, abortSignal)
+      return await fetchUserserve<{ isMarked: boolean }>(`${type}/m/is_marked`, "POST", { mark_id: markId }, abortSignal)
     },
 
     areMarked: async (type: string, markIds: number[], abortSignal?: AbortSignal) => {
-      return await fetchUserserve<{ isMarked: { [key: number]: boolean } }>(`${type}/m/is_marked`, "POST", { mark_ids: markIds }, abortSignal)
+      return await fetchUserserve<{ isMarked: { [key: number]: boolean } }>(`${type}/m/are_marked`, "POST", { mark_ids: markIds }, abortSignal)
     },
 
     getCategoriesByMark: async (type: string, markId: number, abortSignal?: AbortSignal) => {

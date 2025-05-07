@@ -5,5 +5,4 @@
 - TraitsRows.tsx
 - DescriptionRow.tsx
 - electron:build is not working
-- 去除context中的sortOrder
 - 将u/c中的覆盖网格中的删除更能更换为批量操作

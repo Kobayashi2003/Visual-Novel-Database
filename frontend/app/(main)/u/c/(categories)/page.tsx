@@ -43,7 +43,7 @@ function CategoryPageContent() {
   const query = searchParams.get("q") || ""
   const currentPage = searchParams.get("page") ? parseInt(searchParams.get("page") as string) : 1
   const sortBy = searchParams.get("sort") || "id"
-  const sortOrder = searchParams.get("order") || "asc"
+  const sortOrder = searchParams.get("order") || "desc"
 
   const isSearching = query !== ""
   const [itemBarVisible, setItemBarVisible] = useState(false)

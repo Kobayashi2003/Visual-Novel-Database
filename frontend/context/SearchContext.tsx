@@ -6,11 +6,9 @@ interface SearchContextType {
   searchFrom: string
   searchType: string
   sortBy: string
-  sortOrder: string
   setSearchFrom: (from: string) => void
   setSearchType: (type: string) => void
   setSortBy: (by: string) => void
-  setSortOrder: (order: string) => void
 }
 
 const SearchContext = createContext<SearchContextType | undefined>(undefined)
@@ -27,7 +25,6 @@ export function SearchProvider({ children }: { children: React.ReactNode}) {
   const [searchFrom, setSearchFromTemp] = useState<string>("both")
   const [searchType, setSearchTypeTemp] = useState<string>("v")
   const [sortBy, setSortByTemp] = useState<string>("id")
-  const [sortOrder, setSortOrderTemp] = useState<string>("asc")
 
   const setSearchFrom = (from: string) => {
     setSearchFromTemp(from)
@@ -44,34 +41,23 @@ export function SearchProvider({ children }: { children: React.ReactNode}) {
     localStorage.setItem(`sortBy-${searchType}-${searchFrom}`, by)
   }
 
-  const setSortOrder = (order: string) => {
-    setSortOrderTemp(order)
-    // localStorage.setItem(`sortOrder-${searchType}-${searchFrom}`, order)
-    localStorage.setItem(`sortOrder`, order)
-  }
 
   useEffect(() => {
     const searchFrom = localStorage.getItem("searchFrom") || "both"
     const searchType = localStorage.getItem("searchType") || "v"
     const sortBy = localStorage.getItem(`sortBy-${searchType}-${searchFrom}`) || "id"
-    // const sortOrder = localStorage.getItem(`sortOrder-${searchType}-${searchFrom}`) || "asc"
-    const sortOrder = localStorage.getItem(`sortOrder`) || "asc"
     setSearchFromTemp(searchFrom)
     setSearchTypeTemp(searchType)
     setSortByTemp(sortBy)
-    setSortOrderTemp(sortOrder)
   }, [])
   
   useEffect(() => {
     const sortBy = localStorage.getItem(`sortBy-${searchType}-${searchFrom}`) || "id"
-    // const sortOrder = localStorage.getItem(`sortOrder-${searchType}-${searchFrom}`) || "asc"
-    const sortOrder = localStorage.getItem(`sortOrder`) || "asc"
     setSortByTemp(sortBy)
-    setSortOrderTemp(sortOrder)
   }, [searchFrom, searchType])
 
   return (
-    <SearchContext.Provider value={{ searchFrom, searchType, sortBy, sortOrder, setSearchFrom, setSearchType, setSortBy, setSortOrder }}>
+    <SearchContext.Provider value={{ searchFrom, searchType, sortBy, setSearchFrom, setSearchType, setSortBy }}>
       {children}
     </SearchContext.Provider>
   )
