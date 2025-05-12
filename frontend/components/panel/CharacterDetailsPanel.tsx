@@ -2,6 +2,8 @@ import { cn } from "@/lib/utils"
 import { Image } from "@/components/image/Image"
 import { Row } from "@/components/row/Row"
 import { SeiyuuRow } from "@/components/row/SeiyuuRow"
+import { TraitsRow } from "@/components/row/TraitsRows"
+import { DescriptionRow } from "@/components/row/DescriptionRow"
 import { Character } from "@/lib/types"
 
 import { AlertTriangle, ImageOff } from "lucide-react"
@@ -40,6 +42,9 @@ export function CharacterDetailsPanel({ character, spoilerLevel, sexualLevel, vi
         day: "numeric",
       })
   const seiyuu = character.seiyuu
+  const traits = character.traits
+  const vns = character.vns
+  const description = character.description
 
   return (
     <div className="flex flex-col gap-4 bg-[#0F2942]/80 backdrop-blur-md rounded-lg shadow-lg border border-white/10 p-4 md:p-8">
@@ -78,6 +83,8 @@ export function CharacterDetailsPanel({ character, spoilerLevel, sexualLevel, vi
           <Row label="Measurements" value={measurements} />
           <Row label="Birthday" value={birthday} />
           <SeiyuuRow seiyuu={seiyuu} />
+          <TraitsRow traits={traits} showSexual={sexualLevel === "explicit"} spoilerLevel={parseInt(spoilerLevel)} />
+          <DescriptionRow description={description} />
         </div>
       </div>
     </div>

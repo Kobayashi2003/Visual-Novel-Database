@@ -2,7 +2,6 @@
 - 将原本NaviBar的导航功能放入到userButton中
 - VNsRow.tsx
 - SexRow.tsx
-- TraitsRows.tsx
-- DescriptionRow.tsx
 - electron:build is not working
 - 将u/c中的覆盖网格中的删除更能更换为批量操作
+- 需要一个Description的解析器

@@ -7,6 +7,7 @@ import { DevelopersRow } from "@/components/row/DevelopersRow"
 import { PublishersRow } from "@/components/row/PublishersRow"
 import { RelationsRow } from "@/components/row/RelationsRow"
 import { ExtlinksRow } from "@/components/row/ExtlinksRow"
+import { DescriptionRow } from "@/components/row/DescriptionRow"
 import { VN } from "@/lib/types"
 import { ENUMS } from "@/lib/enums"
 
@@ -43,6 +44,7 @@ export function VNDetailsPanel({ vn, sexualLevel, violenceLevel }: VNDetailsPane
   const lengthVotes = vn.length_votes
   const relations = vn.relations
   const extlinks = vn.extlinks
+  const description = vn.description
 
   return (
     <div className="flex flex-col gap-4 bg-[#0F2942]/80 backdrop-blur-md rounded-lg shadow-lg border border-white/10 p-4 md:p-8">
@@ -91,6 +93,7 @@ export function VNDetailsPanel({ vn, sexualLevel, violenceLevel }: VNDetailsPane
           <PublishersRow publishers={publishers} />
           <RelationsRow relations={relations} />
           <ExtlinksRow extlinks={extlinks} />
+          <DescriptionRow description={description} />
         </div>
       </div>
     </div>
