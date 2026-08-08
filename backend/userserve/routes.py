@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, make_response, request, current_app
 from flask_jwt_extended import (
     jwt_required, get_jwt_identity, get_jwt,
     create_access_token, create_refresh_token, decode_token,
@@ -141,6 +141,18 @@ def logout():
     response = jsonify(message="Logged out")
     unset_jwt_cookies(response)
     return response, 200
+
+@api_bp.route('/auth/verify', methods=['GET'])
+@jwt_required()
+def verify():
+    """Auth probe for the edge's `forward_auth`: 204 = live session, 401 = reject.
+
+    No DB lookup — this runs once per image and per audio range request, and the
+    JWT (plus the blocklist loader) already answers the only question asked.
+    """
+    response = make_response('', 204)
+    response.headers['X-User-Id'] = str(get_jwt_identity())
+    return response
 
 @api_bp.route('/me', methods=['GET'])
 @jwt_required()

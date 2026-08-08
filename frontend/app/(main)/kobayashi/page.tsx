@@ -28,7 +28,6 @@ import { useUserContext } from "@/context/UserContext"
 import { useSearchContext } from "@/context/SearchContext"
 import type { PublicVNCollections, VN_Small, VNDBQueryParams } from "@/lib/types"
 
-import { AuthPanel } from "./_components/auth"
 import { Counter, HeroTitle, GitHubLink } from "./_components/hero"
 import { SegmentedControl, SortMenu, SearchBox, PageNav, type SortKey, LOCAL_SORTS, VNDB_SORT } from "./_components/controls"
 import { VNCell, CustomCursor, Loader, ErrorMessage } from "./_components/cards"
@@ -305,12 +304,10 @@ function Showcase() {
 
   /* ── Gated states ─────────────────────────────────────────────────────── */
 
-  if (authLoading) {
+  // No signed-out branch: the proxy redirects to /login before this renders, and
+  // a session that dies later is redirected by UserContext.
+  if (authLoading || !user) {
     return <div className="flex flex-1 items-center justify-center py-32"><Loader /></div>
-  }
-
-  if (!user) {
-    return <AuthPanel />
   }
 
   /* ── Page ─────────────────────────────────────────────────────────────── */

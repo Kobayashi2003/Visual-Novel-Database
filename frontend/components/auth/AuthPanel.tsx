@@ -1,7 +1,4 @@
-/** Sign-in / sign-up card shown when an unauthenticated viewer hits the
- *  kobayashi showcase (covers depend on an authenticated image session). Shares
- *  only the field-validation helpers with the app's dialog-based auth; the
- *  glassy presentation is bespoke to this page, so it lives here. */
+/** Glassy sign-in / sign-up card — the whole of `/login`. */
 "use client"
 
 import { useEffect, useState } from "react"
@@ -12,9 +9,6 @@ import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { validateUsername, validateEmail, validatePassword, PASSWORD_MIN_LENGTH } from "@/lib/validation"
 import { useUserContext } from "@/context/UserContext"
-
-// The fixed account this showcase (and its auth card) represents.
-const USERNAME = "kobayashi"
 
 // Shared styling for the auth inputs; `pl-10` leaves room for a leading icon,
 // and callers add the right padding (`pr-3`, or `pr-10` when there's a trailing
@@ -55,9 +49,11 @@ function AuthPasswordField({ value, onChange, placeholder }: { value: string; on
   )
 }
 
-// Glassy two-mode (sign in / sign up) auth card. The context's login/register
-// reload the page on success, so a successful submit just navigates onward.
-export function AuthPanel() {
+export function AuthPanel({ redirectTo }: {
+  /** Where to land after a successful submit; the context reloads in place
+   *  when omitted. Must already include the basePath. */
+  redirectTo?: string
+}) {
   const { login, register } = useUserContext()
   const [mode, setMode] = useState<"login" | "register">("login")
 
@@ -103,7 +99,7 @@ export function AuthPanel() {
     try {
       if (mode === "login") {
         setLoading(true)
-        await login(username, password)
+        await login(username, password, redirectTo)
       } else {
         if (!invitationCode.trim()) { setError("Enter your invitation code."); return }
         const ue = validateUsername(username); if (ue) { setError(ue); return }
@@ -112,9 +108,9 @@ export function AuthPanel() {
         const pe = validatePassword(password); if (pe) { setError(pe); return }
         if (password !== confirmPassword) { setError("Passwords do not match."); return }
         setLoading(true)
-        await register(username, email, password, code, invitationCode)
+        await register(username, email, password, code, invitationCode, redirectTo)
       }
-      // On success the context reloads the page; nothing more to do here.
+      // On success the context navigates away; nothing more to do here.
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.")
       setLoading(false)
@@ -134,8 +130,8 @@ export function AuthPanel() {
         className="relative w-full max-w-sm rounded-3xl border border-white/10 bg-white/[0.04] p-7 shadow-2xl shadow-black/50 backdrop-blur-xl"
       >
         <div className="mb-6 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">Visual Novel Collection</p>
-          <h1 className="mt-1 bg-linear-to-br from-white to-white/70 bg-clip-text text-3xl font-black tracking-tight text-transparent">{USERNAME}</h1>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">Visual Novel Database</p>
+          <h1 className="mt-1 bg-linear-to-br from-white to-white/70 bg-clip-text text-3xl font-black tracking-tight text-transparent">VNDB</h1>
         </div>
 
         {/* Mode toggle */}

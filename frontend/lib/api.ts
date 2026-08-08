@@ -53,9 +53,7 @@ const fetchVNDB = async <T>(
 ): Promise<PaginatedResponse<T>> => {
   const queryString = new URLSearchParams(params as Record<string, string>).toString()
   const url = `${getBaseUrl("vndb")}/${endpoint}?${queryString}`
-  const response = await fetch(url, { method: "GET", signal: abortSignal })
-  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-  const data: PaginatedResponse<T> = await response.json()
+  const data = await fetchJson<PaginatedResponse<T>>(url, { method: "GET", signal: abortSignal }, "HTTP")
   if (data.status === "ERROR") throw new Error(`VNDB error! status: ${data.status}`)
   if (data.status === "NOT_FOUND") {
     data.results = []
@@ -73,9 +71,7 @@ const fetchVNDBById = async <T>(
 ): Promise<T> => {
   const queryString = new URLSearchParams(params as Record<string, string>).toString()
   const url = `${getBaseUrl("vndb")}/${endpoint}?${queryString}`
-  const response = await fetch(url, { method: "GET", signal: abortSignal })
-  if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-  const data: PaginatedResponse<T> = await response.json()
+  const data = await fetchJson<PaginatedResponse<T>>(url, { method: "GET", signal: abortSignal }, "HTTP")
   if (data.status === "ERROR" || data.status === "NOT_FOUND") throw new Error(`VNDB error! status: ${data.status}`)
   const result: T = data.results[0]
   if (!result) throw new Error(`VNDB error! status: ${data.status}`)
@@ -83,10 +79,10 @@ const fetchVNDBById = async <T>(
 }
 
 
-/* ─── Userserve fetcher ────────────────────────────────────────────────────── */
-// Authenticated calls — auth tokens ride in httpOnly cookies sent via
-// `credentials: include`; state-changing requests echo the CSRF token, and the
-// request body is serialised as JSON.
+/* ─── Session-aware fetch ──────────────────────────────────────────────────── */
+// Every backend sits behind the edge's auth gate, so all calls carry the session
+// cookie and must survive an expired access token — not just the userserve ones.
+// State-changing userserve requests additionally echo the CSRF token.
 
 /** Error thrown by `fetchUserserve` for non-2xx responses. Carries the
  *  backend's structured `code` (e.g. "password_too_short") alongside a
@@ -117,13 +113,6 @@ export function setSessionExpiredHandler(handler: () => void) {
   sessionExpiredHandler = handler
 }
 
-/** Drop the cached session hint. The auth tokens themselves live in httpOnly
- *  cookies and are cleared by the server's logout / refresh-failure response. */
-export function clearStoredSession() {
-  if (typeof window === "undefined") return
-  localStorage.removeItem("username")
-}
-
 /** Read a non-httpOnly cookie value — used to fetch the JWT CSRF tokens that
  *  flask-jwt-extended issues alongside the access / refresh cookies. */
 function readCookie(name: string): string | null {
@@ -133,8 +122,9 @@ function readCookie(name: string): string | null {
 }
 
 /** Exchange the refresh cookie for a fresh access cookie. Returns whether the
- *  refresh succeeded; concurrent callers share one in-flight request. */
-async function refreshAccessToken(): Promise<boolean> {
+ *  refresh succeeded; concurrent callers share one in-flight request. Exported
+ *  for UserContext's proactive renewal — see the timer there. */
+export async function refreshAccessToken(): Promise<boolean> {
   if (typeof window === "undefined") return false
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
@@ -156,41 +146,62 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight
 }
 
+/** Shared fetch: sends session cookies, and on a 401 refreshes once and replays.
+ *  `buildInit` is a factory because refreshing rotates the `csrf_access_token`
+ *  cookie — a replay reusing the original headers would echo a stale token. */
+async function fetchWithSession(
+  url: string,
+  buildInit: () => RequestInit,
+  { skipRefresh = false }: { skipRefresh?: boolean } = {},
+  isRetry = false,
+): Promise<Response> {
+  const response = await fetch(url, { ...buildInit(), credentials: "include" })
+
+  // Access token expired → refresh once, then replay the original request.
+  if (
+    response.status === 401 && !isRetry && !skipRefresh &&
+    typeof window !== "undefined"
+  ) {
+    const refreshed = await refreshAccessToken()
+    if (refreshed) return fetchWithSession(url, buildInit, { skipRefresh }, true)
+    // Refresh was rejected → the session is over.
+    sessionExpiredHandler?.()
+  }
+  return response
+}
+
+/** Fetch + parse for the plain-JSON backends (vndb, transserve, musicserve). */
+const fetchJson = async <T>(url: string, init: RequestInit, label: string): Promise<T> => {
+  const response = await fetchWithSession(url, () => init)
+  if (!response.ok) throw new ApiError(`${label} error! status: ${response.status}`, response.status)
+  return response.json()
+}
+
 const fetchUserserve = async <T>(
   endpoint: string,
   method: "GET" | "POST" | "PUT" | "DELETE",
   body?: unknown,
   abortSignal?: AbortSignal,
-  isRetry = false,
 ): Promise<T> => {
-  const headers: HeadersInit = { 'Content-Type': 'application/json' }
-  // State-changing requests must echo the CSRF token from the cookie that
-  // flask-jwt-extended issued alongside the access cookie.
-  if (method !== "GET") {
-    const csrf = readCookie("csrf_access_token")
-    if (csrf) headers['X-CSRF-TOKEN'] = csrf
-  }
-  const response = await fetch(`${getBaseUrl("userserve")}/${endpoint}`, {
-    method, headers,
-    credentials: "include",
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal: abortSignal,
-  })
-
-  // Access token expired → refresh once, then replay the original request.
-  if (
-    response.status === 401 && !isRetry &&
-    typeof window !== "undefined" &&
-    !AUTH_ENDPOINTS.includes(endpoint)
-  ) {
-    const refreshed = await refreshAccessToken()
-    if (refreshed) {
-      return fetchUserserve<T>(endpoint, method, body, abortSignal, true)
-    }
-    // Refresh was rejected → the session is over.
-    clearStoredSession()
-    sessionExpiredHandler?.()
-  }
+  const response = await fetchWithSession(
+    `${getBaseUrl("userserve")}/${endpoint}`,
+    () => {
+      const headers: HeadersInit = { 'Content-Type': 'application/json' }
+      // State-changing requests must echo the CSRF token from the cookie that
+      // flask-jwt-extended issued alongside the access cookie.
+      if (method !== "GET") {
+        const csrf = readCookie("csrf_access_token")
+        if (csrf) headers['X-CSRF-TOKEN'] = csrf
+      }
+      return {
+        method, headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: abortSignal,
+      }
+    },
+    // A 401 from login/register/logout is terminal — never refresh-retry it.
+    { skipRefresh: AUTH_ENDPOINTS.includes(endpoint) },
+  )
 
   if (!response.ok) {
     // userserve reports failures as `{ error: code, message: text }`; fall back
@@ -219,15 +230,6 @@ function typeRoute(type: string): string {
 // Rewrite VNDB-hosted image URLs to go through our imgserve proxy. Leaves
 // unknown URL shapes untouched.
 function convertToImgserveUrl(url: string): string {
-  /* ─── TEMP imgserve login guard ─ delete this whole block to remove ────────── */
-  // While logged out, return a black placeholder instead of the imgserve URL so
-  // the browser never issues a request to imgserve. A 1x1 black PNG data URI is
-  // used so next/image renders it without a configured remote host.
-  if (typeof window !== "undefined" && !localStorage.getItem("username")) {
-    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR42mNgYGAAAAAEAAHI6uv5AAAAAElFTkSuQmCC"
-  }
-  /* ─── END TEMP ─────────────────────────────────────────────────────────────── */
-
   // "direct" image source (Settings) — bypass imgserve and hand the VNDB CDN
   // URL straight to the browser. Read from localStorage, like the guard above,
   // so this plain function need not be a hook.
@@ -343,9 +345,9 @@ export const api = {
   relationGraph: async (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal): Promise<RelationGraph> => {
     const queryString = new URLSearchParams(params as Record<string, string>).toString()
     const url = `${getBaseUrl("vndb")}/v${id}/rg${queryString ? `?${queryString}` : ""}`
-    const response = await fetch(url, { method: "GET", signal: abortSignal })
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-    const data: { status: string; results: RelationGraph } = await response.json()
+    const data = await fetchJson<{ status: string; results: RelationGraph }>(
+      url, { method: "GET", signal: abortSignal }, "HTTP",
+    )
     if (data.status === "ERROR" || data.status === "NOT_FOUND") throw new Error(`VNDB error! status: ${data.status}`)
     const graph = data.results
     return { ...graph, nodes: graph.nodes.map(processGraphNodeImage) }
@@ -550,14 +552,12 @@ export const api = {
       abortSignal?: AbortSignal,
     ): Promise<{ results: Record<string, string | null>; matched: Record<string, boolean> }> => {
       if (!words.length) return { results: {}, matched: {} }
-      const response = await fetch(`${getBaseUrl("transserve")}/dictionary/lookup`, {
+      return fetchJson(`${getBaseUrl("transserve")}/dictionary/lookup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ words, fallback }),
         signal: abortSignal,
-      })
-      if (!response.ok) throw new Error(`Transserve error! status: ${response.status}`)
-      return response.json()
+      }, "Transserve")
     },
 
     /* Transserve passage memory: English → Japanese for long-form text such as
@@ -571,14 +571,12 @@ export const api = {
       abortSignal?: AbortSignal,
     ): Promise<{ results: Record<string, string | null>; matched: Record<string, boolean> }> => {
       if (!texts.length) return { results: {}, matched: {} }
-      const response = await fetch(`${getBaseUrl("transserve")}/passage/lookup`, {
+      return fetchJson(`${getBaseUrl("transserve")}/passage/lookup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texts, fallback }),
         signal: abortSignal,
-      })
-      if (!response.ok) throw new Error(`Transserve error! status: ${response.status}`)
-      return response.json()
+      }, "Transserve")
     },
   },
 
@@ -590,23 +588,18 @@ export const api = {
     url: (vnid: string) => `${getBaseUrl("musicserve")}/music/${vnid}`,
     coverUrl: (vnid: string) => `${getBaseUrl("musicserve")}/cover/${vnid}`,
 
-    meta: async (vnid: string, abortSignal?: AbortSignal): Promise<MusicMeta> => {
-      const response = await fetch(`${getBaseUrl("musicserve")}/meta/${vnid}`, { signal: abortSignal })
-      if (!response.ok) throw new Error(`Musicserve error! status: ${response.status}`)
-      return response.json()
-    },
+    meta: (vnid: string, abortSignal?: AbortSignal): Promise<MusicMeta> =>
+      fetchJson(`${getBaseUrl("musicserve")}/meta/${vnid}`, { signal: abortSignal }, "Musicserve"),
 
     // Which of `ids` have a track. Keys in the result echo the input ids.
     available: async (ids: string[], abortSignal?: AbortSignal): Promise<Record<string, boolean>> => {
       if (!ids.length) return {}
-      const response = await fetch(`${getBaseUrl("musicserve")}/available`, {
+      const data = await fetchJson<{ available: Record<string, boolean> }>(`${getBaseUrl("musicserve")}/available`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
         signal: abortSignal,
-      })
-      if (!response.ok) throw new Error(`Musicserve error! status: ${response.status}`)
-      const data: { available: Record<string, boolean> } = await response.json()
+      }, "Musicserve")
       return data.available
     },
   },

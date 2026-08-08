@@ -26,7 +26,7 @@ import { VNsCardsGrid } from "@/components/card/CardsGrid"
 function HomeContent() {
   const searchParams = useSearchParams()
   const { updateKey, updateMultipleKeys } = useUrlParams()
-  const { user, isLoading: authLoading, defaultSexualLevel, defaultViolenceLevel } = useUserContext()
+  const { defaultSexualLevel, defaultViolenceLevel } = useUserContext()
 
   /* ─── URL-derived params ───────────────────────────────────────────────── */
 
@@ -172,7 +172,7 @@ function HomeContent() {
             exit={{ filter: "blur(20px)", opacity: 0 }}
             transition={{ duration: 0.4, ease: "easeInOut" }}
           >
-            <VNsCardsGrid vns={vns} layout={layout} cardType={cardType} sexualLevel={sexualLevel} violenceLevel={violenceLevel} isGuest={!authLoading && !user} />
+            <VNsCardsGrid vns={vns} layout={layout} cardType={cardType} sexualLevel={sexualLevel} violenceLevel={violenceLevel} />
           </motion.div>
         )}
       </AnimatePresence>

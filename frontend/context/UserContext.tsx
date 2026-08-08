@@ -2,8 +2,9 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import type { User, SexualLevel, ViolenceLevel, ImageSource, VNCharacterLayout } from "@/lib/types"
-import { api, setSessionExpiredHandler, clearStoredSession } from "@/lib/api"
+import { api, setSessionExpiredHandler, refreshAccessToken } from "@/lib/api"
 
 interface UserContextType {
   user: User | null
@@ -12,8 +13,8 @@ interface UserContextType {
   defaultViolenceLevel: ViolenceLevel
   imageSource: ImageSource
   vnCharacterLayout: VNCharacterLayout
-  register: (username: string, email: string, password: string, code: string, invitationCode: string) => Promise<void>
-  login: (username: string, password: string) => Promise<void>
+  register: (username: string, email: string, password: string, code: string, invitationCode: string, redirectTo?: string) => Promise<void>
+  login: (username: string, password: string, redirectTo?: string) => Promise<void>
   logout: () => Promise<void>
   changeEmail: (newEmail: string, code: string, password: string) => Promise<void>
   deleteAccount: (password: string) => Promise<void>
@@ -25,6 +26,13 @@ interface UserContextType {
 
 const UserContext = createContext<UserContextType | undefined>(undefined)
 
+// Full navigation, not a client-side push, so every provider and cached fetch is
+// rebuilt for the new session. `redirectTo` already carries the basePath.
+const navigateAfterAuth = (redirectTo?: string) => {
+  if (redirectTo) window.location.assign(redirectTo)
+  else window.location.reload()
+}
+
 export function useUserContext() {
   const context = useContext(UserContext)
   if (context === undefined) throw new Error("useUserContext must be used within a UserProvider")
@@ -32,6 +40,8 @@ export function useUserContext() {
 }
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
+  const pathname = usePathname()
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [defaultSexualLevel, setDefaultSexualLevel] = useState<SexualLevel>(
@@ -67,52 +77,78 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setVNCharacterLayout(v)
   }
 
-  // Re-establish the session on mount. The username hint marks a session that
-  // may still be alive; the API layer transparently refreshes an expired access
-  // cookie, and a fully stale session is discarded.
+  // A session that dies while the page is open: the proxy only runs on
+  // navigation, so without this the user would sit on a page whose every request
+  // now 401s. Send them to the sign-in panel instead of leaving errors on screen.
   useEffect(() => {
-    setSessionExpiredHandler(() => setUser(null))
+    setSessionExpiredHandler(() => {
+      setUser(null)
+      if (pathname === "/login") return
+      // `next` is consumed by a plain location.assign, so it needs the basePath
+      // that `pathname` (router-relative) has stripped off.
+      const here = window.location.pathname + window.location.search
+      router.replace(`/login?next=${encodeURIComponent(here)}`)
+    })
+  }, [router, pathname])
+
+  // Re-establish the session on mount. `/me` is the only authority on whether
+  // someone is signed in; a 401 here simply means they are not.
+  useEffect(() => {
     const initializeUser = async () => {
-      if (localStorage.getItem("username")) {
-        try {
-          const userData = await api.user.me()
-          setUser(userData)
-        } catch {
-          clearStoredSession()
-        }
+      try {
+        setUser(await api.user.me())
+      } catch {
+        setUser(null)
       }
       setIsLoading(false)
     }
     initializeUser()
   }, [])
 
-  // Auth transitions reload the page so every Server Component re-renders for
-  // the new session. The auth tokens are set as httpOnly cookies by the server;
-  // only the (non-sensitive) username is cached, as a hint that a session is
-  // active — and server-normalised (trimmed) so later lookups match.
-  const register = async (username: string, email: string, password: string, code: string, invitationCode: string) => {
-    const response = await api.user.register(username, email, password, code, invitationCode)
-    localStorage.setItem("username", response.username)
-    const userData = await api.user.me()
-    setUser(userData)
-    window.location.reload()
+  // Renew the access cookie ahead of expiry: `<img>` / `<audio>` fetch through
+  // the same edge gate and get a bare 401 they cannot retry. Must stay below the
+  // backend's JWT_ACCESS_TOKEN_MINUTES (default 30).
+  useEffect(() => {
+    if (!user) return
+    const REFRESH_INTERVAL_MS = 20 * 60 * 1000
+    let lastRefresh = Date.now()
+    const renew = () => { lastRefresh = Date.now(); refreshAccessToken() }
+
+    const interval = setInterval(renew, REFRESH_INTERVAL_MS)
+    // Hidden tabs throttle timers, so renew on the way back too — but only if
+    // the cookie is actually getting stale. Without the elapsed check, flicking
+    // between tabs would hammer /refresh (rate-limited to 30/min) and rotate the
+    // cookie every time.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return
+      if (Date.now() - lastRefresh >= REFRESH_INTERVAL_MS) renew()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [user])
+
+  // The server sets the auth cookies on these responses; the navigation that
+  // follows re-mounts the tree, and that fresh mount is what loads the user via
+  // `/me`. Fetching or storing the user here would only be thrown away.
+  const register = async (username: string, email: string, password: string, code: string, invitationCode: string, redirectTo?: string) => {
+    await api.user.register(username, email, password, code, invitationCode)
+    navigateAfterAuth(redirectTo)
   }
 
-  const login = async (username: string, password: string) => {
-    const response = await api.user.login(username, password)
-    localStorage.setItem("username", response.username)
-    const userData = await api.user.me()
-    setUser(userData)
-    window.location.reload()
+  const login = async (username: string, password: string, redirectTo?: string) => {
+    await api.user.login(username, password)
+    navigateAfterAuth(redirectTo)
   }
 
   const logout = async () => {
     try {
       await api.user.logout()
     } catch {
-      // Best-effort server-side revoke; clear the local session regardless.
+      // Best-effort server-side revoke; drop the local session regardless.
     }
-    clearStoredSession()
     setUser(null)
     window.location.reload()
   }
@@ -130,7 +166,6 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const deleteAccount = async (password: string) => {
     if (!user) throw new Error("Not signed in")
     await api.user.deleteAccount(user.username, password)
-    clearStoredSession()
     setUser(null)
     window.location.reload()
   }

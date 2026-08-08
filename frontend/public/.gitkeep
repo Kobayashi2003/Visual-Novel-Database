@@ -1,0 +1,3 @@
+# Keeps public/ present in git. The sprites moved to app/ (bundled so their URLs
+# carry the basePath), leaving this empty — but deploy/frontend.Dockerfile does an
+# unconditional `COPY /app/public`, which fails if the directory is absent.

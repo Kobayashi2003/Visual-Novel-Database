@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo, useRef, useCallback, Suspense } from "rea
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import {
   LayoutGrid, LayoutList, AlignJustify, Rows3, ArrowDown, ArrowUp,
-  Pencil, Menu, Lock, Library, X, ChevronDown, Search,
+  Pencil, Menu, Library, X, ChevronDown, Search,
 } from "lucide-react"
 
 import { useUrlParams } from "@/hooks/useUrlParams"
@@ -574,14 +574,6 @@ function CollectionContent() {
       {/* Main content */}
       <div className={cn("flex-1 min-w-0 lg:overflow-y-auto lg:overscroll-contain", editMode && "pb-24")}>
         <div className="px-4 lg:px-6 py-6 max-w-7xl mx-auto">
-
-          {/* Unauthenticated */}
-          {!user && !authLoading && (
-            <div className="flex flex-col items-center justify-center py-24 gap-4 text-muted">
-              <Lock className="w-12 h-12 opacity-40" />
-              <p className="text-base">Sign in to view your collection</p>
-            </div>
-          )}
 
           {authLoading && (
             <div className="flex justify-center py-24">

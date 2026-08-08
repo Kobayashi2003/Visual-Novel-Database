@@ -9,6 +9,13 @@
 #   *_UPSTREAM             host:port of each backend
 #   IMGSERVE_IMAGE_FOLDER  imgserve's cache root, served straight off disk on hits
 #
+# Auth lives here, not in the backends. Each backend prefix exposes an explicit
+# allowlist of the routes the frontend uses (everything else 403s without being
+# forwarded) and gates them with forward_auth against userserve /auth/verify.
+# vndb / imgserve / transserve / musicserve therefore hold no auth code at all,
+# and their admin and write routes remain reachable on the loopback ports.
+# userserve is exempt: every one of its routes already guards itself.
+#
 # Rules for anything added here:
 #   - No matcher-less `handle` at top level. Under AppGateway the catch-all is the
 #     landing page. (One nested inside a handle_path is fine — it is scoped to it,
@@ -24,29 +31,52 @@
 # (/img/..., /login, /v123).
 
 handle_path /imgserve/* {
-	# Cache hit: serve off disk, Flask never runs. A miss fails the `file` matcher
-	# and falls through to the proxy below, which does the fetch-and-store.
-	@vndb_cached_img {
-		path_regexp imgpath ^/img(/.+\.jpg)$
-		file {
-			try_files {re.imgpath.1}
-			root {$IMGSERVE_IMAGE_FOLDER}
+	route {
+		# Only the read surface the frontend uses is public. imgserve's write
+		# routes and /tasks/* keep working on the loopback port — they are simply
+		# not part of what this edge exposes, so imgserve needs no auth code.
+		@vndb_img_public {
+			method GET HEAD
+			path /img/* /bg
 		}
-	}
-	handle @vndb_cached_img {
-		root * {$IMGSERVE_IMAGE_FOLDER}
-		rewrite * {re.imgpath.1}
-		header Cache-Control "public, max-age=31536000, immutable"
-		file_server
-	}
-
-	handle {
-		reverse_proxy {$IMGSERVE_UPSTREAM:127.0.0.1:5001} {
-			# Cold fetches pull from t.vndb.org and can take seconds.
-			transport http {
-				read_timeout 30s
-				write_timeout 30s
+		handle @vndb_img_public {
+			# `route` above, and this gate first inside it, because Caddy reorders
+			# bare directives by default priority — the file_server fast path
+			# below would otherwise serve cached images without ever asking.
+			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+				uri /auth/verify
 			}
+
+			# Cache hit: serve off disk, Flask never runs. A miss fails the `file`
+			# matcher and falls through to the proxy below, which fetches-and-stores.
+			@vndb_cached_img {
+				path_regexp imgpath ^/img(/.+\.jpg)$
+				file {
+					try_files {re.imgpath.1}
+					root {$IMGSERVE_IMAGE_FOLDER}
+				}
+			}
+			handle @vndb_cached_img {
+				root * {$IMGSERVE_IMAGE_FOLDER}
+				rewrite * {re.imgpath.1}
+				# `private`: these sit behind a session now, so no shared proxy
+				# may keep a copy.
+				header Cache-Control "private, max-age=31536000, immutable"
+				file_server
+			}
+
+			handle {
+				reverse_proxy {$IMGSERVE_UPSTREAM:127.0.0.1:5001} {
+					# Cold fetches pull from t.vndb.org and can take seconds.
+					transport http {
+						read_timeout 30s
+						write_timeout 30s
+					}
+				}
+			}
+		}
+		handle {
+			respond 403
 		}
 	}
 }
@@ -56,15 +86,70 @@ handle_path /userserve/* {
 }
 
 handle_path /vndb/* {
-	reverse_proxy {$VNDB_UPSTREAM:127.0.0.1:5000}
+	route {
+		# The query routes only: /v, /v17, /v17/rg and the same for r c p s g i.
+		# Keeps /admin, /tasks/*, /trash/* and the CRUD resource routes loopback-only.
+		@vndb_api {
+			method GET HEAD
+			path_regexp ^/[vrcpsgi]\d*(/rg)?$
+		}
+		handle @vndb_api {
+			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+				uri /auth/verify
+			}
+			reverse_proxy {$VNDB_UPSTREAM:127.0.0.1:5000}
+		}
+		handle {
+			respond 403
+		}
+	}
 }
 
 handle_path /transserve/* {
-	reverse_proxy {$TRANSSERVE_UPSTREAM:127.0.0.1:5003}
+	route {
+		# Lookups only — the dictionary / passage write routes stay loopback-only.
+		@vndb_trans_public {
+			method POST
+			path /dictionary/lookup /passage/lookup
+		}
+		handle @vndb_trans_public {
+			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+				uri /auth/verify
+			}
+			reverse_proxy {$TRANSSERVE_UPSTREAM:127.0.0.1:5003}
+		}
+		handle {
+			respond 403
+		}
+	}
 }
 
 handle_path /musicserve/* {
-	reverse_proxy {$MUSICSERVE_UPSTREAM:127.0.0.1:5004}
+	route {
+		@vndb_music_public {
+			method GET HEAD
+			path /music/* /cover/* /meta/*
+		}
+		@vndb_music_available {
+			method POST
+			path /available
+		}
+		handle @vndb_music_public {
+			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+				uri /auth/verify
+			}
+			reverse_proxy {$MUSICSERVE_UPSTREAM:127.0.0.1:5004}
+		}
+		handle @vndb_music_available {
+			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+				uri /auth/verify
+			}
+			reverse_proxy {$MUSICSERVE_UPSTREAM:127.0.0.1:5004}
+		}
+		handle {
+			respond 403
+		}
+	}
 }
 
 # Next.js, under the basePath baked in at build time — so `handle`, not

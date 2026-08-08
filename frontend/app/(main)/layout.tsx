@@ -18,8 +18,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   // keeps it off the critical path entirely: a CSS background alone is still
   // fetched at the layout engine's discretion (and can't carry a priority hint),
   // whereas this paints from cache with zero extra contention.
+  const pathname = usePathname()
+  // /login is reached without a session, so imgserve would 401 — don't ask.
+  const wantsBackground = pathname !== "/login"
+
   const [bgUrl, setBgUrl] = useState<string | undefined>(undefined)
   useEffect(() => {
+    if (!wantsBackground) return
     const src = `${IMGSERVE_BASE_URL}/bg`
     const w = window as Window & {
       requestIdleCallback?: (cb: () => void) => number
@@ -39,14 +44,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     }
     const t = setTimeout(load, 200)
     return () => { clearTimeout(t); if (img) img.onload = null }
-  }, [])
+  }, [wantsBackground])
 
   // The Kobayashi showcase hides the global search header and supplies its own
   // pin-to-top toolbar instead, so it starts flush against the viewport top.
   // The relation-graph page (`/{slug}/rg`) is full-bleed with its own frosted
   // header overlay, so the global header — and its top-edge peek — must stay out.
-  const pathname = usePathname()
-  const hideHeader = pathname === "/kobayashi" || pathname.endsWith("/rg")
+  // /login is standalone too — its header would only offer search that 401s.
+  const hideHeader = pathname === "/kobayashi" || pathname === "/login" || pathname.endsWith("/rg")
   // The Kobayashi showcase paints its own audio-reactive background, so the
   // global wallpaper is suppressed there (it would stack underneath and fight
   // the bespoke layers).

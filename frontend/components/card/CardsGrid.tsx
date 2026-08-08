@@ -61,7 +61,6 @@ interface GenImageCardProps {
   sexualLevel?: SexualLevel
   violenceLevel?: ViolenceLevel
   layout?: "single" | "grid"
-  isGuest?: boolean
   tooltip?: string
   className?: string
   imageOverlay?: React.ReactNode
@@ -81,24 +80,17 @@ function getBlurClass(
 export function GenImageCard({
   title, msgs, image, link,
   sexualLevel = "safe", violenceLevel = "tame",
-  layout = "grid", isGuest, tooltip, className, imageOverlay
+  layout = "grid", tooltip, className, imageOverlay
 }: GenImageCardProps) {
   const blurClass = getBlurClass(image, sexualLevel, violenceLevel)
-  const imgUrl = image?.thumbnail || image?.url || ""
-
-  // Guests cannot view or navigate to non-safe+tame images
-  const isRestricted = !!(isGuest && getBlurClass(image, "safe", "tame") !== "")
-  const effectiveUrl = isRestricted ? "" : imgUrl
-  const effectiveLink = isRestricted ? undefined : link
 
   return (
     <ImageCard
-      url={effectiveUrl}
+      url={image?.thumbnail || image?.url || ""}
       title={title}
       msgs={msgs}
-      link={effectiveLink}
-      restricted={isRestricted}
-      className={cn(className, !isRestricted && blurClass, "transition-all duration-300")}
+      link={link}
+      className={cn(className, blurClass, "transition-all duration-300")}
       tooltip={tooltip}
       layout={layout === "grid" ? "grid" : "list"}
       imageOverlay={imageOverlay}
@@ -258,13 +250,12 @@ interface CardsGridBaseProps<T> extends CollectionCardProps {
   layout?: "single" | "grid"
   sexualLevel?: SexualLevel
   violenceLevel?: ViolenceLevel
-  isGuest?: boolean
 }
 
 function CardsGridBase<T>({
   items, adapter, supportsImage,
   cardType = "image", layout = "grid",
-  sexualLevel = "safe", violenceLevel = "tame", isGuest,
+  sexualLevel = "safe", violenceLevel = "tame",
   view, onRemove, onMove, editMode, selectedIds, onToggleSelect, markedAtMap,
   ratingsMap, onRate,
 }: CardsGridBaseProps<T>) {
@@ -317,7 +308,7 @@ function CardsGridBase<T>({
             <GenImageCard
               image={card.image} title={card.title} msgs={card.msgs} link={card.link}
               sexualLevel={sexualLevel} violenceLevel={violenceLevel}
-              layout={effectiveLayout} isGuest={isGuest}
+              layout={effectiveLayout}
               imageOverlay={canRate ? (
                 <CardRatingOverlay
                   value={ratingsMap?.[card.id] ?? 0}
@@ -436,7 +427,6 @@ interface VNsCardsGridProps extends CollectionCardProps {
   layout?: "single" | "grid"
   sexualLevel?: SexualLevel
   violenceLevel?: ViolenceLevel
-  isGuest?: boolean
 }
 
 export function VNsCardsGrid({ vns, ...props }: VNsCardsGridProps) {

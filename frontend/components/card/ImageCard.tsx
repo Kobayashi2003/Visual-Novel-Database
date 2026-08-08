@@ -5,14 +5,13 @@ import { useEffect, useState, useCallback } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
-import { ImageOff, RotateCw, Lock } from "lucide-react"
+import { ImageOff, RotateCw } from "lucide-react"
 
 interface ImageCardProps {
   title: string
   url: string
   msgs?: React.ReactNode[]
   link?: string
-  restricted?: boolean
   tooltip?: string
   layout?: "grid" | "list"
   className?: string
@@ -20,7 +19,7 @@ interface ImageCardProps {
   imageOverlay?: React.ReactNode
 }
 
-export function ImageCard({ title, url, msgs, link, restricted, tooltip, layout = "grid", className, imageOverlay }: ImageCardProps) {
+export function ImageCard({ title, url, msgs, link, tooltip, layout = "grid", className, imageOverlay }: ImageCardProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [imgUrl, setImgUrl] = useState(url)
@@ -99,17 +98,8 @@ export function ImageCard({ title, url, msgs, link, restricted, tooltip, layout 
       className
     )} title={tooltip}>
       <div className="relative w-full aspect-square rounded overflow-hidden">
-        {restricted ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-elevated gap-1.5">
-            <Lock className="w-6 h-6 text-muted/50" />
-            <span className="text-xs text-muted/50">Login to view</span>
-          </div>
-        ) : (
-          <>
-            {imageContent}
-            {imageOverlay}
-          </>
-        )}
+        {imageContent}
+        {imageOverlay}
       </div>
       <div className="mt-2 px-1">
         <p className="truncate font-semibold text-xs sm:text-sm text-white">{title}</p>
@@ -128,17 +118,8 @@ export function ImageCard({ title, url, msgs, link, restricted, tooltip, layout 
       className
     )} title={tooltip}>
       <div className="relative w-24 h-32 shrink-0 rounded overflow-hidden">
-        {restricted ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-elevated gap-1">
-            <Lock className="w-5 h-5 text-muted/50" />
-            <span className="text-xs text-muted/50 text-center px-1 leading-tight">Login to view</span>
-          </div>
-        ) : (
-          <>
-            {imageContent}
-            {imageOverlay}
-          </>
-        )}
+        {imageContent}
+        {imageOverlay}
       </div>
       <div className="flex-1 min-w-0 py-1">
         <p className="font-semibold text-sm text-white line-clamp-2">{title}</p>
