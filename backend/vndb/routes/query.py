@@ -4,7 +4,7 @@ from vndb.tasks.resources import (
     get_resources_task, search_resources_task, query_resources_task
 )
 from vndb.tasks.relation_graph import get_relation_graph_task, GRAPH_DEPTH_CAP
-from .common import execute_task
+from .common import execute_task, parse_bool
 
 
 def _normalize(query):
@@ -57,8 +57,8 @@ def handle_query(query):
         page = int(params.pop('page', 1))
         limit = int(params.pop('limit', 20))
         sort = params.pop('sort', 'id')
-        reverse = params.pop('reverse', 'false').lower() == 'true'
-        count = params.pop('count', 'true').lower() == 'true'
+        reverse = parse_bool(params.pop('reverse', None), False)
+        count = parse_bool(params.pop('count', None), True)
 
         search_from = params.pop('from', '')
         response_size = params.pop('size', 'large')

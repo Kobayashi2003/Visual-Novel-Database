@@ -17,7 +17,7 @@ from vndb.tasks.trash import (
     recover_resource_task, recover_resources_task,
     cleanup_resource_task, cleanup_resources_task
 )
-from .common import execute_task
+from .common import execute_task, parse_bool
 
 class SingletonABCMeta(ABCMeta):
     _instances = {}
@@ -94,8 +94,8 @@ class BaseResourceBlueprint(ABC, metaclass=SingletonABCMeta):
         page = int(args.pop('page', 1))
         limit = int(args.pop('limit', 20))
         sort = args.pop('sort', 'id')
-        reverse = str(args.pop('reverse', False)).lower() in ('true', '1', 'yes')
-        count = str(args.pop('count', True)).lower() not in ('false', '0', 'no')
+        reverse = parse_bool(args.pop('reverse', None), False)
+        count = parse_bool(args.pop('count', None), True)
         sync = self.get_sync_param()
         args.pop('sync', None)
 
@@ -167,8 +167,8 @@ class BaseResourceBlueprint(ABC, metaclass=SingletonABCMeta):
         page = args.get('page', default=1, type=int)
         limit = args.get('limit', default=20, type=int)
         sort = args.get('sort', default='id', type=str)
-        reverse = args.get('reverse', default=False, type=bool)
-        count = args.get('count', default=True, type=bool)
+        reverse = parse_bool(args.get('reverse'), False)
+        count = parse_bool(args.get('count'), True)
         sync = self.get_sync_param()
         return execute_task(get_related_resources_task, sync, self.resource_type, id, related_resource_type, response_size, page, limit, sort, reverse, count)
 
@@ -196,8 +196,8 @@ class BaseResourceBlueprint(ABC, metaclass=SingletonABCMeta):
         page = args.get('page', default=None, type=int)
         limit = args.get('limit', default=None, type=int)
         sort = args.get('sort', default='id', type=str)
-        reverse = args.get('reverse', default=False, type=bool)
-        count = args.get('count', default=True, type=bool)
+        reverse = parse_bool(args.get('reverse'), False)
+        count = parse_bool(args.get('count'), True)
         sync = self.get_sync_param()
 
         return execute_task(get_inactive_resources_task, sync, self.resource_type, page, limit, sort, reverse, count)
