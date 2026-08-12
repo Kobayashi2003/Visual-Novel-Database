@@ -2,7 +2,7 @@ from .common import *
 from .models import *
 from .commands import *
 from .operations import (
-    formatId, exists, count_all, count_inactive_all, updatable,
+    exists, count_all, count_inactive_all, updatable,
     create_save as create,
     update_save as update,
     delete_save as delete,

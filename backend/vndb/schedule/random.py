@@ -11,7 +11,8 @@ import random
 
 from .common import hourly_task
 from vndb.search import search_remote, convert_remote_to_local
-from vndb.database import MODEL_MAP, formatId, exists, create, update, updatable
+from vndb.database import MODEL_MAP, exists, create, update, updatable
+from vndb.utils.ids import formatId
 
 # (resource type, ids sampled per run) processed by random_fetch_schedule.
 FETCH_COUNTS = [

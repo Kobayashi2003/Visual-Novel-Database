@@ -1,6 +1,6 @@
-import re
 from abc import ABC, ABCMeta, abstractmethod
 from flask import Blueprint, jsonify, abort, request
+from vndb.utils.ids import formatId
 from vndb.tasks.resources import (
     get_resource_task, get_resources_task,
     search_resource_task, search_resources_task,
@@ -37,6 +37,7 @@ class BaseResourceBlueprint(ABC, metaclass=SingletonABCMeta):
         self.trash_bp = Blueprint(f'trash_{self.plural_form}', __name__, url_prefix=f'/trash/{self.plural_form}')
 
         self.register_routes()
+        self.register_id_preprocessor()
         self.bp.register_blueprint(self.resource_bp)
         self.bp.register_blueprint(self.trash_bp)
 
@@ -76,20 +77,13 @@ class BaseResourceBlueprint(ABC, metaclass=SingletonABCMeta):
     def register_id_preprocessor(self):
         @self.resource_bp.url_value_preprocessor
         @self.trash_bp.url_value_preprocessor
-        def check_id(endpoint, values):
-            if 'id' in values:
-                id_value = values['id']
-                id_prefixes = {
-                    'vn': 'v', 'character': 'c', 'staff': 's',
-                    'tag': 'g', 'producer': 'p', 'release': 'r', 'trait': 'i'
-                }
-
-                prefix = id_prefixes.get(self.resource_type)
-                if prefix is None:
-                    raise ValueError(f"Unknown resource type: {self.resource_type}")
-
-                if not re.match(rf'^{prefix}\d+$', id_value):
-                    abort(400, description=f"Invalid id format for {self.resource_type}: {id_value}")
+        def normalize_id(endpoint, values):
+            if not values or 'id' not in values:
+                return
+            try:
+                values['id'] = formatId(self.resource_type, values['id'])
+            except ValueError:
+                abort(400, description=f"Invalid id for {self.resource_type}: {values['id']}")
 
     def get_sync_param(self):
         return request.args.get('sync', 'true').lower() == 'true'

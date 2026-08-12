@@ -1,4 +1,3 @@
-import re
 from typing import Any
 from datetime import datetime, timezone, timedelta
 from functools import wraps
@@ -6,6 +5,7 @@ from functools import wraps
 from sqlalchemy import asc, desc
 
 from vndb import db
+from vndb.utils.ids import formatId
 from .models import MODEL_MAP, ModelType
 
 
@@ -25,25 +25,6 @@ def db_transaction(func):
             return None
     return wrapper
 
-
-def formatId(type: str, id: str) -> str:
-    type_prefix = {
-        'vn': 'v',
-        'release': 'r',
-        'character': 'c',
-        'producer': 'p',
-        'staff': 's',
-        'tag': 'g',
-        'trait': 'i'
-    }[type]
-    id = str(id)
-    if re.match(r'^\d+$', id):
-        return f"{type_prefix}{id}"
-    if re.match(r'^[a-zA-Z]\d+$', id):
-        if id[:1] not in type_prefix:
-            raise ValueError(f"Invalid ID: {id}")
-        return id
-    raise ValueError(f"Invalid ID: {id}")
 
 def exists(type: str, id: str) -> bool:
     id = formatId(type, id)

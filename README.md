@@ -15,6 +15,18 @@ in a set of small Flask services, and serves it through a **freshly redesigned N
 On top of the original VNDB feature set it adds **user accounts**, **localized images & media**, and
 a **Japanese translation layer** for tag/trait descriptions.
 
+## Architecture
+
+<img src="assets/architecture.png" alt="Architecture" />
+
+Caddy is the single public ingress. Each backend prefix exposes an explicit allowlist of the routes
+the frontend uses, and every allowlisted request is probed against `userserve /auth/verify` before it
+is forwarded — so **vndb, imgserve, transserve and musicserve contain no auth code at all**, and their
+admin and write routes stay reachable only on the loopback ports.
+
+> Editable source: [`assets/architecture.drawio`](assets/architecture.drawio) (VS Code Draw.io extension).
+> After editing, re-export to `assets/architecture.png`.
+
 ## Preview
 
 <table>

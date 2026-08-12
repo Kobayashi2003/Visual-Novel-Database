@@ -25,7 +25,7 @@ from sqlalchemy import or_, and_, false, text, exists, select, func, Integer, Fl
 from sqlalchemy.sql.expression import BinaryExpression
 
 from vndb.database.models import VN, Tag, Producer, Staff, Character, Trait, Release
-from vndb.database.operations import formatId
+from vndb.utils.ids import formatId
 from ..parse import validate_logical_expression
 
 def generate_unique_param_name(prefix: str) -> str:

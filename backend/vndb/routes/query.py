@@ -1,19 +1,22 @@
 from flask import Blueprint, abort, jsonify, request
+from vndb.utils.ids import formatId, TYPE_BY_PREFIX
 from vndb.tasks.resources import (
     get_resources_task, search_resources_task, query_resources_task
 )
 from vndb.tasks.relation_graph import get_relation_graph_task, GRAPH_DEPTH_CAP
 from .common import execute_task
 
-RESOURCE_TYPE_MAP = {
-    'v': 'vn',
-    'r': 'release',
-    'p': 'producer',
-    'c': 'character',
-    's': 'staff',
-    'g': 'tag',
-    'i': 'trait'
-}
+
+def _normalize(query):
+    """Split '/v17' into ('vn', 'v17'). Unlike the /vns/<id> routes the prefix
+    is mandatory here, because it is what selects the resource type."""
+    resource_type = TYPE_BY_PREFIX.get(query[0].lower())
+    if not resource_type:
+        abort(400, description="Invalid resource type")
+    try:
+        return resource_type, formatId(resource_type, query)
+    except ValueError:
+        abort(400, description=f"Invalid ID format: {query}")
 
 query_bp = Blueprint('query', __name__, url_prefix='/')
 
@@ -23,14 +26,10 @@ QUERY_MODE = 'default'  # 'default' | 'local' | 'remote' | 'disabled'
 @query_bp.route('/<string:query>/rg', methods=['GET'])
 def handle_relation_graph(query):
 
-    resource_type = RESOURCE_TYPE_MAP.get(query[0].lower())
-    if resource_type != 'vn':
+    if TYPE_BY_PREFIX.get(query[0].lower()) != 'vn':
         abort(400, description="Relation graph is only available for visual novels")
 
-    try:
-        int(query[1:])
-    except ValueError:
-        abort(400, description="Invalid ID format")
+    _, query = _normalize(query)
 
     if QUERY_MODE == 'disabled':
         abort(503, description="Query API is currently disabled")
@@ -44,7 +43,7 @@ def handle_relation_graph(query):
 @query_bp.route('/<string:query>', methods=['GET'])
 def handle_query(query):
 
-    resource_type = RESOURCE_TYPE_MAP.get(query[0].lower())
+    resource_type = TYPE_BY_PREFIX.get(query[0].lower())
     if not resource_type:
         abort(400, description="Invalid resource type")
 

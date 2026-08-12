@@ -5,6 +5,7 @@ from functools import wraps
 
 from vndb import celery, cache, db
 from vndb.database import convert_model_to_dict
+from vndb.logger import logger
 
 NOT_FOUND = {'status': 'NOT_FOUND', 'results': None}
 NOT_FOUND_CACHE_TIMEOUT = 60
@@ -27,8 +28,9 @@ def error_handler(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except Exception as e:
-            return {"status": "ERROR", "results": str(e)}
+        except Exception:
+            logger.exception(f"{func.__name__} failed")
+            return {"status": "ERROR", "results": "Internal error"}
     return wrapper
 
 def clear_caches(func):
