@@ -17,7 +17,7 @@ from vndb.tasks.trash import (
     recover_resource_task, recover_resources_task,
     cleanup_resource_task, cleanup_resources_task
 )
-from .common import execute_task, parse_bool
+from .common import execute_task, parse_bool, parse_int
 
 class SingletonABCMeta(ABCMeta):
     _instances = {}
@@ -91,8 +91,8 @@ class BaseResourceBlueprint(ABC, metaclass=SingletonABCMeta):
     def get_resources(self):
         args = request.args.to_dict()
         response_size = args.pop('response_size', 'small')
-        page = int(args.pop('page', 1))
-        limit = int(args.pop('limit', 20))
+        page = parse_int(args.pop('page', None), 1, 1)
+        limit = parse_int(args.pop('limit', None), 20, 1, 100)
         sort = args.pop('sort', 'id')
         reverse = parse_bool(args.pop('reverse', None), False)
         count = parse_bool(args.pop('count', None), True)

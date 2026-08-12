@@ -4,7 +4,7 @@ from vndb.tasks.resources import (
     get_resources_task, search_resources_task, query_resources_task
 )
 from vndb.tasks.relation_graph import get_relation_graph_task, GRAPH_DEPTH_CAP
-from .common import execute_task, parse_bool
+from .common import execute_task, parse_bool, parse_int
 
 
 def _normalize(query):
@@ -35,7 +35,7 @@ def handle_relation_graph(query):
         abort(503, description="Query API is currently disabled")
 
     params = request.args.to_dict()
-    depth = int(params.pop('depth', GRAPH_DEPTH_CAP))
+    depth = parse_int(params.pop('depth', None), GRAPH_DEPTH_CAP, 1, GRAPH_DEPTH_CAP)
     official_only = params.pop('official_only', 'false').lower() == 'true'
 
     return execute_task(get_relation_graph_task, True, query, depth, official_only)
@@ -54,8 +54,8 @@ def handle_query(query):
 
     if len(query) == 1:
         # Handle search for a specific type
-        page = int(params.pop('page', 1))
-        limit = int(params.pop('limit', 20))
+        page = parse_int(params.pop('page', None), 1, 1)
+        limit = parse_int(params.pop('limit', None), 20, 1, 100)
         sort = params.pop('sort', 'id')
         reverse = parse_bool(params.pop('reverse', None), False)
         count = parse_bool(params.pop('count', None), True)
