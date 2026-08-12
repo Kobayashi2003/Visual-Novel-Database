@@ -85,9 +85,15 @@ def get_all(type: str, page: int | None = None, limit: int | None = None, sort: 
         query = query.offset((page - 1) * limit).limit(limit)
     return query.all()
 
+# Lifecycle columns: maintained here from `source`, never writable by a caller.
+PROTECTED_COLUMNS = {'id', 'created_at', 'updated_at', 'crawled_at', 'edited_at', 'deleted_at'}
+
 # `source` records what kind of write this is:
 #   'crawl' (default) — data fetched from the remote API; stamps crawled_at
-#   'edit'            — a manual user edit; stamps edited_at
+#   'edit'            — a manual user edit; stamps edited_at, which freezes the
+#                       row against automatic sync (see `updatable`)
+#   'refresh'         — explicit re-crawl of one row; stamps crawled_at and
+#                       clears edited_at, returning the row to the sync cycle
 #   None              — maintenance write (e.g. backfill); stamps neither
 def create(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl') -> ModelType | None:
     id = formatId(type, id)
@@ -111,13 +117,19 @@ def update(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl
     item = get(type, id)
     if not item:
         return None
+    columns = {c.name for c in item.__table__.columns}
     for key, value in data.items():
-        setattr(item, key, value)
-    item.updated_at = datetime.now(timezone.utc)
+        if key in columns and key not in PROTECTED_COLUMNS:
+            setattr(item, key, value)
+    now = datetime.now(timezone.utc)
+    item.updated_at = now
     if source == 'crawl':
-        item.crawled_at = datetime.now(timezone.utc)
+        item.crawled_at = now
     elif source == 'edit':
-        item.edited_at = datetime.now(timezone.utc)
+        item.edited_at = now
+    elif source == 'refresh':
+        item.crawled_at = now
+        item.edited_at = None
     db.session.flush()
     return item
 

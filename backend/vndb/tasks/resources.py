@@ -82,10 +82,7 @@ def _update_resource(resource_type: str, resource_id: str) -> dict[str, Any]:
     update_data = convert_remote_to_local(resource_type, remote_result['results'][0])
 
     if exists(resource_type, resource_id):
-        # Explicit refresh: overwrite the row and drop the manual-edit mark,
-        # so the row re-enters the automatic sync cycle.
-        update_data['edited_at'] = None
-        data = update(resource_type, resource_id, update_data)
+        data = update(resource_type, resource_id, update_data, source='refresh')
     else:
         data = create(resource_type, resource_id, update_data)
 
