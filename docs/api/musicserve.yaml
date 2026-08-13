@@ -1,0 +1,224 @@
+openapi: 3.1.0
+
+info:
+  title: musicserve
+  version: "1.0"
+  description: |
+    Theme music for visual novels, served straight off disk.
+
+    A track is located by **vnid** — the numeric VNDB id, optionally `v`-prefixed
+    (`17` and `v17` are the same track). There is no database: the filename is
+    the index, so adding a track means dropping a file into the music folder.
+
+    Cover art comes from a sibling image file when one exists, otherwise from
+    the audio file's embedded album art, which is extracted and cached on first
+    request. The cache key includes the audio file's mtime, so replacing a track
+    invalidates its cover automatically.
+
+    See ./README.md for the conventions shared by every service.
+
+servers:
+  - url: http://localhost:30709/musicserve
+    description: Behind the Caddy edge (requires a session)
+  - url: http://localhost:5004
+    description: Direct, loopback only
+
+tags:
+  - name: media
+    description: Audio and cover byte streams
+  - name: metadata
+    description: JSON about a track
+
+paths:
+  /music/{vnid}:
+    get:
+      tags: [media]
+      summary: Stream the audio for a visual novel
+      description: |
+        Returns the audio bytes. Range requests are supported, so seeking in a
+        player fetches `206 Partial Content` rather than re-downloading.
+
+        Cached for an hour rather than immutably, because a track can be
+        replaced in place; conditional revalidation keeps repeat plays cheap.
+      parameters:
+        - $ref: "#/components/parameters/Vnid"
+      responses:
+        "200":
+          description: The whole file.
+          headers:
+            Accept-Ranges: { schema: { type: string }, description: Always `bytes`. }
+            Cache-Control: { schema: { type: string }, description: "`public, max-age=3600`" }
+          content:
+            audio/mpeg: { schema: { type: string, format: binary } }
+            audio/flac: { schema: { type: string, format: binary } }
+        "206":
+          description: A byte range, in response to a `Range` request.
+        "304":
+          description: Unchanged since the client's cached copy.
+        "400":
+          $ref: "#/components/responses/InvalidVnid"
+        "404":
+          $ref: "#/components/responses/NoTrack"
+
+  /cover/{vnid}:
+    get:
+      tags: [media]
+      summary: Cover art for a visual novel
+      description: |
+        A sibling image file if one exists; otherwise the audio file's embedded
+        album art, extracted and cached. `404` when the track has neither.
+      parameters:
+        - $ref: "#/components/parameters/Vnid"
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        "304":
+          description: Unchanged since the client's cached copy.
+        "400":
+          $ref: "#/components/responses/InvalidVnid"
+        "404":
+          description: No track, or a track with no cover of either kind.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /meta/{vnid}:
+    get:
+      tags: [metadata]
+      summary: Track metadata
+      description: |
+        Tags read from the audio file. Which fields are present depends on how
+        the file was tagged — only `id` and `has_cover` are guaranteed.
+      parameters:
+        - $ref: "#/components/parameters/Vnid"
+      responses:
+        "200":
+          description: Metadata for the track.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, has_cover]
+                properties:
+                  id:
+                    type: string
+                    description: The normalized vnid, always `v`-prefixed.
+                  has_cover:
+                    type: boolean
+                    description: Whether /cover/{vnid} will return an image.
+                  title: { type: [string, "null"] }
+                  artist: { type: [string, "null"] }
+                  album: { type: [string, "null"] }
+                  duration:
+                    type: [number, "null"]
+                    description: Seconds.
+                  format:
+                    type: [string, "null"]
+                    description: Container, lowercased — `flac`, `mp3`, …
+                additionalProperties: true
+              example:
+                id: v60663
+                has_cover: true
+                title: "IF Else[Instrumental]"
+                artist: "Neko Hacker"
+                album: "ディメンション凸ラバース!! ORIGINAL SOUND TRACK"
+                duration: 215.25
+                format: flac
+        "400":
+          $ref: "#/components/responses/InvalidVnid"
+        "404":
+          $ref: "#/components/responses/NoTrack"
+
+  /available:
+    post:
+      tags: [metadata]
+      summary: Which of these visual novels have music
+      description: |
+        A batch existence check, for deciding which cards in a list get a play
+        button without one request per card.
+
+        Keys in the response echo **exactly what you posted** — `"17"` stays
+        `"17"`, `"v17"` stays `"v17"` — so the result maps straight onto the
+        caller's own data without renormalizing.
+
+        An id that is not a valid vnid reports `false` rather than failing the
+        whole batch. `false` therefore means "no track for this id", whether the
+        id was malformed or simply has no music.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  maxItems: 2000
+                  items:
+                    type: [string, integer]
+            example:
+              ids: ["v17", 23, "v99999"]
+      responses:
+        "200":
+          description: One boolean per posted id.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available]
+                properties:
+                  available:
+                    type: object
+                    additionalProperties: { type: boolean }
+              example:
+                available: { "v17": true, "23": false, "v99999": false }
+        "400":
+          description: Missing `ids` list, or more than 2000 ids.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  parameters:
+    Vnid:
+      name: vnid
+      in: path
+      required: true
+      schema: { type: string }
+      description: Numeric VNDB id, optionally `v`-prefixed. `17` and `v17` are equivalent.
+      examples:
+        prefixed: { value: v17 }
+        bare: { value: "17" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Machine code. Part of the contract.
+          examples: [invalid_request, not_found, method_not_allowed, internal_error]
+        message:
+          type: string
+          description: For humans. Not stable — never parse it.
+
+  responses:
+    InvalidVnid:
+      description: The vnid is not a number, with or without a `v` prefix.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: invalid_request
+            message: vnid must be a number, optionally v-prefixed (e.g. v17)
+    NoTrack:
+      description: No audio file for this vnid.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

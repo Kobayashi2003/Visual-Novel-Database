@@ -12,7 +12,7 @@ from .models import DictionaryEntry, PassageEntry
 
 class ValidationError(Exception):
     """Input-validation failure meant to be reported to the client as a 4xx."""
-    error_code = "validation_error"
+    error_code = "invalid_request"
     message = "Invalid input."
     http_status = 400
 
@@ -167,8 +167,7 @@ def list_entries(source_lang: str = 'en', target_lang: str = 'ja',
     return {
         'results': [dict(item) for item in items],
         'count': total,
-        'page': page,
-        'limit': limit,
+        'more': page * limit < total,
     }
 
 
@@ -335,8 +334,7 @@ def list_passages(source_lang: str = 'en', target_lang: str = 'ja',
     return {
         'results': [dict(item) for item in items],
         'count': total,
-        'page': page,
-        'limit': limit,
+        'more': page * limit < total,
     }
 
 

@@ -1,0 +1,478 @@
+openapi: 3.1.0
+
+info:
+  title: transserve
+  version: "1.0"
+  description: |
+    English → Japanese translation memory.
+
+    Two independent stores:
+
+    - **Dictionary** — short terms (tag and trait *names*), keyed by a
+      normalized form of the source word, so lookups tolerate case and spacing.
+    - **Passage** — long-form text (tag and trait *descriptions*), keyed by the
+      SHA-256 of its normalized form. Any edit to the source yields a different
+      key, and therefore a miss, rather than a stale translation.
+
+    Passage translations must preserve the VNDB markup tokens present in the
+    source (`[url=...]`, `[spoiler]`, …); an entry that drops, adds or alters
+    one is rejected on ingest.
+
+    See ./README.md for the conventions shared by every service.
+
+servers:
+  - url: http://localhost:30709/transserve
+    description: Behind the Caddy edge (requires a session)
+  - url: http://localhost:5003
+    description: Direct, loopback only
+
+tags:
+  - name: dictionary
+    description: Short-term translation memory
+  - name: passage
+    description: Long-form translation memory
+  - name: translate
+    description: Reserved, not implemented
+
+paths:
+  /dictionary/lookup:
+    post:
+      tags: [dictionary]
+      summary: Look up several words at once
+      description: |
+        The only dictionary endpoint the frontend uses. `fallback` decides what
+        an unknown word maps to in `results`:
+
+        - `false` (default) — `null`, so a caller can tell known from unknown.
+        - `true` — the word itself, so a display caller always has something to
+          render.
+
+        `matched` reports real hits either way, so `fallback: true` never hides
+        whether a translation actually existed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [words]
+              properties:
+                words:
+                  type: array
+                  items: { type: string }
+                fallback:
+                  type: boolean
+                  default: false
+            example:
+              words: ["School", "Maid", "Nonexistent"]
+              fallback: true
+      responses:
+        "200":
+          description: Lookup performed. Unknown words are reported in `matched`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results, matched]
+                properties:
+                  results:
+                    type: object
+                    additionalProperties:
+                      type: [string, "null"]
+                  matched:
+                    type: object
+                    additionalProperties: { type: boolean }
+              example:
+                results: { School: "学園", Maid: "メイド", Nonexistent: "Nonexistent" }
+                matched: { School: true, Maid: true, Nonexistent: false }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+
+  /dictionary/{word}:
+    parameters:
+      - $ref: "#/components/parameters/Word"
+      - $ref: "#/components/parameters/SourceLang"
+      - $ref: "#/components/parameters/TargetLang"
+    get:
+      tags: [dictionary]
+      summary: Look up one word
+      parameters:
+        - name: fallback
+          in: query
+          schema: { type: boolean, default: false }
+          description: Return 200 echoing the source word instead of 404.
+      responses:
+        "200":
+          description: Found, or not found with `fallback=true`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [source, target, matched, source_lang, target_lang]
+                properties:
+                  source: { type: string }
+                  target: { type: string }
+                  matched:
+                    type: boolean
+                    description: False when `target` is an echo of `source`.
+                  source_lang: { type: string }
+                  target_lang: { type: string }
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [dictionary]
+      summary: Delete one entry
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: { type: string }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /dictionary:
+    get:
+      tags: [dictionary]
+      summary: List entries
+      parameters:
+        - $ref: "#/components/parameters/SourceLang"
+        - $ref: "#/components/parameters/TargetLang"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Substring match against the normalized source word.
+      responses:
+        "200":
+          description: A page of entries. Empty when nothing matches.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      results:
+                        type: array
+                        items: { $ref: "#/components/schemas/DictionaryEntry" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+    post:
+      tags: [dictionary]
+      summary: Append or merge entries (upsert by source word)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DictionaryIngest" }
+      responses:
+        "201":
+          $ref: "#/components/responses/Submitted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+
+  /dictionary/init:
+    post:
+      tags: [dictionary]
+      summary: Initialize the dictionary
+      description: "With `replace: true` the language pair is cleared first."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/DictionaryIngest"
+                - type: object
+                  properties:
+                    replace: { type: boolean, default: false }
+      responses:
+        "201":
+          $ref: "#/components/responses/Submitted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+
+  /passage/lookup:
+    post:
+      tags: [passage]
+      summary: Look up several passages at once
+      description: |
+        The only passage endpoint the frontend uses. `fallback` behaves exactly
+        as on `/dictionary/lookup`. Keys are the *source texts* you sent, so a
+        caller can map results back without tracking hashes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [texts]
+              properties:
+                texts:
+                  type: array
+                  items: { type: string }
+                fallback:
+                  type: boolean
+                  default: false
+      responses:
+        "200":
+          description: Lookup performed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results, matched]
+                properties:
+                  results:
+                    type: object
+                    additionalProperties:
+                      type: [string, "null"]
+                  matched:
+                    type: object
+                    additionalProperties: { type: boolean }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+
+  /passage:
+    get:
+      tags: [passage]
+      summary: List passages
+      parameters:
+        - $ref: "#/components/parameters/SourceLang"
+        - $ref: "#/components/parameters/TargetLang"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - name: entity_type
+          in: query
+          schema: { type: string, examples: [tag, trait] }
+        - name: search
+          in: query
+          schema: { type: string }
+          description: Substring match against the source text.
+      responses:
+        "200":
+          description: A page of passages. Empty when nothing matches.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      results:
+                        type: array
+                        items: { $ref: "#/components/schemas/PassageEntry" }
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+    post:
+      tags: [passage]
+      summary: Append or merge passages (upsert by source hash)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PassageIngest" }
+      responses:
+        "201":
+          $ref: "#/components/responses/Submitted"
+        "400":
+          description: |
+            Invalid body, or a translation that failed markup validation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /passage/init:
+    post:
+      tags: [passage]
+      summary: Initialize the passage memory
+      description: "With `replace: true` the language pair is cleared first."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PassageIngest"
+                - type: object
+                  properties:
+                    replace: { type: boolean, default: false }
+      responses:
+        "201":
+          $ref: "#/components/responses/Submitted"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+
+  /translate:
+    post:
+      tags: [translate]
+      summary: Translate arbitrary text
+      description: Reserved for a future engine. Always 501 today.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+      responses:
+        "501":
+          description: Not implemented.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: not_implemented
+                message: Text translation is not implemented yet; only dictionary lookup is available.
+
+components:
+  parameters:
+    Word:
+      name: word
+      in: path
+      required: true
+      schema: { type: string }
+      description: Source word. Matched case- and whitespace-insensitively.
+    SourceLang:
+      name: source
+      in: query
+      schema: { type: string, default: en }
+    TargetLang:
+      name: target
+      in: query
+      schema: { type: string, default: ja }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1, minimum: 1 }
+      description: 1-based. Values below 1 are clamped.
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+      description: Clamped to the range rather than rejected.
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Machine code. Part of the contract.
+          examples: [invalid_request, not_found, not_implemented, internal_error]
+        message:
+          type: string
+          description: For humans. Not stable — never parse it.
+
+    Page:
+      type: object
+      required: [results, count, more]
+      properties:
+        results: { type: array }
+        count:
+          type: integer
+          description: Total matching rows, ignoring pagination.
+        more:
+          type: boolean
+          description: Whether another page follows.
+
+    DictionaryEntry:
+      type: object
+      required: [id, source, target, source_lang, target_lang]
+      properties:
+        id: { type: integer }
+        source: { type: string }
+        target: { type: string }
+        source_lang: { type: string }
+        target_lang: { type: string }
+        category: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    PassageEntry:
+      type: object
+      required: [id, source, target, source_lang, target_lang]
+      properties:
+        id: { type: integer }
+        source: { type: string }
+        target: { type: string }
+        source_lang: { type: string }
+        target_lang: { type: string }
+        entity_type: { type: [string, "null"] }
+        category: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    DictionaryIngest:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [source, target]
+            properties:
+              source: { type: string }
+              target: { type: string }
+              category: { type: string }
+        category:
+          type: string
+          description: Default category for entries that omit one.
+
+    PassageIngest:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [source, target]
+            properties:
+              source: { type: string }
+              target: { type: string }
+              entity_type: { type: string }
+              category: { type: string }
+        entity_type:
+          type: string
+          description: Default entity type for entries that omit one.
+        category:
+          type: string
+          description: Default category for entries that omit one.
+
+  responses:
+    Submitted:
+      description: Accepted and written.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [submitted]
+            properties:
+              submitted:
+                type: integer
+                description: Number of entries written.
+    InvalidRequest:
+      description: Malformed parameter or body.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: The named resource does not exist.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

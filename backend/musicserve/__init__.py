@@ -11,6 +11,8 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
+from .errors import http_error_code
+
 from .config import Config
 
 
@@ -35,9 +37,9 @@ def create_app(config_class=Config, enable_scheduler=True):
         # Let routing-level HTTP errors (404 on unknown URLs, 405, ...) keep
         # their status as JSON instead of collapsing into a 500.
         if isinstance(e, HTTPException):
-            return jsonify(error=e.description), e.code
+            return jsonify(error=http_error_code(e.code), message=e.description), e.code
         app.logger.error(f"Unhandled exception: {e}", exc_info=True)
-        return jsonify(error="Internal server error"), 500
+        return jsonify(error="internal_error", message="Internal server error"), 500
 
     from .routes import api_bp
     app.register_blueprint(api_bp)

@@ -1,22 +1,49 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request
 
 from .service import TranslationService, TranslationNotImplemented
 from .operations import ValidationError
+from .errors import http_error_code
 
 api_bp = Blueprint('api', __name__, url_prefix='/')
+
+_TRUE = {'true', '1', 'yes', 'on'}
+_FALSE = {'false', '0', 'no', 'off'}
+
+def parse_bool(raw, default: bool) -> bool:
+    if raw is None:
+        return default
+    raw = str(raw).strip().lower()
+    if raw in _TRUE:
+        return True
+    if raw in _FALSE:
+        return False
+    return default
+
+def parse_int(raw, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        abort(400, description=f"Expected an integer, got: {raw!r}")
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
 
 
 @api_bp.errorhandler(400)
 def bad_request(e):
-    return jsonify(error=str(e.description)), 400
+    return jsonify(error="invalid_request", message=str(e.description)), 400
 
 @api_bp.errorhandler(404)
 def not_found(e):
-    return jsonify(error="Resource not found"), 404
+    return jsonify(error="not_found", message="Resource not found."), 404
 
 @api_bp.errorhandler(500)
 def server_error(e):
-    return jsonify(error="An unexpected error occurred"), 500
+    return jsonify(error="internal_error", message="An unexpected error occurred."), 500
 
 @api_bp.errorhandler(ValidationError)
 def handle_validation_error(e):
@@ -78,9 +105,9 @@ def dictionary_lookup(word):
     always need something to show."""
     service = _service()
     translation = service.lookup(word)
-    fallback = request.args.get('fallback', 'false').lower() in ('true', '1', 'yes')
+    fallback = parse_bool(request.args.get('fallback'), False)
     if translation is None and not fallback:
-        return jsonify(error="not_found", source=word, target=None, matched=False), 404
+        return jsonify(error="not_found", message=f"No translation for: {word}"), 404
     return jsonify({
         "source": word,
         "target": translation if translation is not None else word,
@@ -101,8 +128,8 @@ def dictionary_list():
         target_lang=target,
         category=request.args.get('category'),
         search=request.args.get('search'),
-        page=int(request.args.get('page', 1)),
-        limit=int(request.args.get('limit', 50)),
+        page=parse_int(request.args.get('page'), 1, 1),
+        limit=parse_int(request.args.get('limit'), 50, 1, 200),
     ))
 
 
@@ -125,7 +152,7 @@ def dictionary_init():
         default_category=body.get('category'),
         replace=bool(body.get('replace', False)),
     )
-    return jsonify({"status": "ok", "submitted": count}), 201
+    return jsonify({"submitted": count}), 201
 
 
 @api_bp.route('/dictionary', methods=['POST'])
@@ -137,7 +164,7 @@ def dictionary_append():
     if not isinstance(entries, list) or not entries:
         raise ValidationError("Body must include a non-empty 'entries' list.")
     count = _service().append(entries, default_category=body.get('category'))
-    return jsonify({"status": "ok", "submitted": count}), 201
+    return jsonify({"submitted": count}), 201
 
 
 @api_bp.route('/dictionary/<path:word>', methods=['DELETE'])
@@ -146,8 +173,8 @@ def dictionary_delete(word):
     service = _service()
     deleted = operations.delete_entry(word, service.source_lang, service.target_lang)
     if not deleted:
-        return jsonify(error="not_found", source=word), 404
-    return jsonify({"status": "ok", "deleted": word})
+        return jsonify(error="not_found", message=f"No dictionary entry for: {word}"), 404
+    return jsonify({"deleted": word})
 
 
 # ----------------------------------------
@@ -188,8 +215,8 @@ def passage_list():
         target_lang=target,
         entity_type=request.args.get('entity_type'),
         search=request.args.get('search'),
-        page=int(request.args.get('page', 1)),
-        limit=int(request.args.get('limit', 50)),
+        page=parse_int(request.args.get('page'), 1, 1),
+        limit=parse_int(request.args.get('limit'), 50, 1, 200),
     ))
 
 
@@ -210,7 +237,7 @@ def passage_init():
         default_category=body.get('category'),
         replace=bool(body.get('replace', False)),
     )
-    return jsonify({"status": "ok", "submitted": count}), 201
+    return jsonify({"submitted": count}), 201
 
 
 @api_bp.route('/passage', methods=['POST'])
@@ -227,7 +254,7 @@ def passage_append():
         default_entity=body.get('entity_type'),
         default_category=body.get('category'),
     )
-    return jsonify({"status": "ok", "submitted": count}), 201
+    return jsonify({"submitted": count}), 201
 
 
 # ----------------------------------------
