@@ -6,13 +6,12 @@ from .common import save_db_operation
 @save_db_operation
 def exists(type: str, id: str) -> bool:
     model = IMAGE_MODEL[type]
-    image = model.query.get(id)
-    return image is not None
+    return db.session.get(model, id) is not None
 
 @save_db_operation
 def get(type: str, id: str) -> ImageType | None:
     model = IMAGE_MODEL[type]
-    return model.query.get(id)
+    return db.session.get(model, id)
 
 @save_db_operation
 def create(type: str, id: str, *, fast: bool = False) -> ImageType | None:

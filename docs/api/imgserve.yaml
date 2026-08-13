@@ -1,0 +1,275 @@
+openapi: 3.1.0
+
+info:
+  title: imgserve
+  version: "1.0"
+  description: |
+    A local mirror of VNDB's image CDN.
+
+    An image is addressed by its **type** and **numeric id** — `cv` covers,
+    `sf` screenshots, `ch` character portraits, each with a `.t` thumbnail
+    variant (`cv.t`, `sf.t`). The `<dir>` segment in `/img/{type}/{dir}/{id}.jpg`
+    is VNDB's own bucket number; it is ignored when locating the file and exists
+    only so the URL matches the upstream layout — which lets Caddy serve a cache
+    hit straight off disk without consulting this service at all.
+
+    On a miss the image is fetched from t.vndb.org and stored, then served. That
+    fetch is **single-flighted**: concurrent requests for the same image wait on
+    one download rather than starting several. A request that waits too long
+    gets `503` rather than hanging.
+
+    Requesting one variant also schedules a background fetch of its sibling
+    (full-size ⇄ thumbnail), on the assumption that a page showing one will soon
+    want the other.
+
+    Only the read surface below is exposed at the edge. The write routes
+    (`POST` / `PUT` / `DELETE` on an image) and `/tasks/*` are reachable on the
+    loopback port only, and are documented here for operators rather than
+    clients.
+
+    See ./README.md for the conventions shared by every service.
+
+servers:
+  - url: http://localhost:30709/imgserve
+    description: Behind the Caddy edge (requires a session)
+  - url: http://localhost:5001
+    description: Direct, loopback only
+
+tags:
+  - name: images
+    description: Read the image cache
+  - name: maintenance
+    description: Loopback-only; not exposed at the edge
+
+paths:
+  /img/{type}/{dir}/{id}.jpg:
+    get:
+      tags: [images]
+      summary: Fetch an image, mirroring it on first request
+      description: |
+        The endpoint the frontend uses. Served from disk when cached; otherwise
+        downloaded from t.vndb.org, stored and then served.
+
+        Caddy answers a cache hit from disk without reaching this service, so in
+        practice only misses arrive here.
+
+        `{dir}` is VNDB's bucket number and is not used for lookup — the
+        equivalent `/img/{type}/{id}` form resolves identically.
+      parameters:
+        - $ref: "#/components/parameters/Type"
+        - name: dir
+          in: path
+          required: true
+          schema: { type: integer }
+          description: VNDB bucket number. Accepted and ignored.
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The image.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              description: |
+                `public, max-age=31536000, immutable` when served by this
+                service — VNDB images never change once published. Caddy
+                rewrites this to `private` at the edge, since the image now sits
+                behind a session and must not enter a shared cache.
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+        "404":
+          description: Unknown image type.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: |
+            The upstream fetch timed out, failed, or is still in flight past the
+            wait limit. Transient by assumption — a genuinely absent upstream
+            image is not distinguished here, because both cases want the same
+            client behaviour: show a retry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /bg:
+    get:
+      tags: [images]
+      summary: A random background image
+      description: |
+        Picks one file at random from the operator-managed `additional/bg`
+        folder. Used as the site wallpaper, so a different one appears per load.
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/png: { schema: { type: string, format: binary } }
+        "404":
+          description: The folder is empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /random:
+    get:
+      tags: [images]
+      summary: A random image from the operator-managed pool
+      description: Same as `/bg`, over the `additional/random` folder.
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/png: { schema: { type: string, format: binary } }
+        "404":
+          description: The folder is empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /{type}/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Type"
+      - $ref: "#/components/parameters/Id"
+      - $ref: "#/components/parameters/Sync"
+    post:
+      tags: [maintenance]
+      summary: Mirror one image
+      description: Downloads the file, then inserts the row. Loopback only.
+      responses:
+        "200":
+          $ref: "#/components/responses/TaskOutcome"
+        "202":
+          $ref: "#/components/responses/TaskQueued"
+    put:
+      tags: [maintenance]
+      summary: Re-download one image
+      description: Refetches an image already on record. Loopback only.
+      responses:
+        "200":
+          $ref: "#/components/responses/TaskOutcome"
+        "202":
+          $ref: "#/components/responses/TaskQueued"
+    delete:
+      tags: [maintenance]
+      summary: Drop one image from the cache
+      responses:
+        "200":
+          $ref: "#/components/responses/TaskOutcome"
+        "202":
+          $ref: "#/components/responses/TaskQueued"
+
+  /:
+    post:
+      tags: [maintenance]
+      summary: Mirror a batch of images by URL
+      parameters:
+        - $ref: "#/components/parameters/Sync"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [urls]
+              properties:
+                urls:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+      responses:
+        "200":
+          $ref: "#/components/responses/TaskOutcome"
+        "202":
+          $ref: "#/components/responses/TaskQueued"
+        "400":
+          description: Missing or empty `urls` list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /tasks/{task_id}:
+    parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [maintenance]
+      summary: Result of a queued task
+      responses:
+        "200":
+          $ref: "#/components/responses/TaskOutcome"
+        "202":
+          description: Still running.
+    post:
+      tags: [maintenance]
+      summary: Revoke a queued task
+      responses:
+        "200":
+          description: Revoked.
+        "404":
+          description: No such task.
+
+components:
+  parameters:
+    Type:
+      name: type
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [cv, cv.t, sf, sf.t, ch, ch.t]
+      description: |
+        Image class. `cv` cover, `sf` screenshot, `ch` character portrait; the
+        `.t` suffix selects the thumbnail variant.
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+      description: VNDB image id, without a type prefix.
+    Sync:
+      name: sync
+      in: query
+      schema: { type: boolean, default: true }
+      description: |
+        `false` queues the work on Celery and returns `202` with a task id
+        instead of waiting for the outcome.
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          examples: [invalid_request, not_found, unavailable, internal_error]
+        message:
+          type: string
+          description: For humans. Not stable — never parse it.
+
+  responses:
+    TaskOutcome:
+      description: |
+        The outcome of a maintenance task. These routes still report success in
+        the body rather than the status code; see ./README.md — they are slated
+        to move onto status codes together with vndb, which shares this shape.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [status]
+            properties:
+              status:
+                type: string
+                enum: [SUCCESS, FAILED, NOT_FOUND, ERROR]
+              results:
+                description: Present on batch operations.
+    TaskQueued:
+      description: Queued for background processing (`?sync=false`).
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [task_id]
+            properties:
+              task_id: { type: string }

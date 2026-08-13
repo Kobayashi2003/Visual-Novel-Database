@@ -4,7 +4,8 @@ from flask import current_app
 from imgserve import celery
 from imgserve.database import exists, create, update, delete
 from imgserve.utils import download_image_to_disk, download_images, get_image_path
-from .common import SUCCESS, FAILED
+from imgserve.logger import logger
+from .common import SUCCESS, FAILED, ERROR
 
 
 @celery.task
@@ -23,8 +24,9 @@ def ensure_image_task(type: str, id: int) -> Dict[str, str]:
             ok = download_image_to_disk(type, id)
             return SUCCESS if ok else FAILED
         result = create(type, id)
-    except Exception as e:
-        return {'status': 'ERROR', 'results': str(e)}
+    except Exception:
+        logger.exception(f"ensure_image_task failed for {type}/{id}")
+        return ERROR
     return SUCCESS if result else FAILED
 
 
@@ -32,8 +34,9 @@ def ensure_image_task(type: str, id: int) -> Dict[str, str]:
 def create_image_task(type: str, id: int) -> Dict[str, str]:
     try:
         result = create(type, id)
-    except Exception as e:
-        return {'status': 'ERROR', 'results': str(e)}
+    except Exception:
+        logger.exception(f"create_image_task failed for {type}/{id}")
+        return ERROR
     if not result:
         return FAILED
     return SUCCESS
@@ -43,8 +46,9 @@ def create_image_task(type: str, id: int) -> Dict[str, str]:
 def update_image_task(type: str, id: int) -> Dict[str, str]:
     try:
         result = update(type, id)
-    except Exception as e:
-        return {'status': 'ERROR', 'results': str(e)}
+    except Exception:
+        logger.exception(f"update_image_task failed for {type}/{id}")
+        return ERROR
     if not result:
         return FAILED
     return SUCCESS
@@ -54,8 +58,9 @@ def update_image_task(type: str, id: int) -> Dict[str, str]:
 def delete_image_task(type: str, id: int) -> Dict[str, str]:
     try:
         result = delete(type, id)
-    except Exception as e:
-        return {'status': 'ERROR', 'results': str(e)}
+    except Exception:
+        logger.exception(f"delete_image_task failed for {type}/{id}")
+        return ERROR
     if not result:
         return FAILED
     return SUCCESS
@@ -66,6 +71,7 @@ def download_images_task(urls: List[str]) -> Dict[str, Any]:
     try:
         image_folder = current_app.config['IMAGE_FOLDER']
         results = download_images(urls, image_folder)
-    except Exception as e:
-        return {'status': 'ERROR', 'results': str(e)}
+    except Exception:
+        logger.exception(f"download_images_task failed for {len(urls)} url(s)")
+        return ERROR
     return {'status': 'SUCCESS', 'results': results}

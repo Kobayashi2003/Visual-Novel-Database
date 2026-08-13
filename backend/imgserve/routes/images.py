@@ -15,9 +15,10 @@ def get_sync_param():
 
 @image_bp.route('', methods=['POST'])
 def download_images():
-    urls = request.json.get('urls', [])
-    if not urls:
-        abort(400)
+    body = request.get_json(silent=True) or {}
+    urls = body.get('urls')
+    if not isinstance(urls, list) or not urls:
+        abort(400, description="Body must include a non-empty 'urls' list.")
     sync = get_sync_param()
     return execute_task(download_images_task, sync, urls)
 

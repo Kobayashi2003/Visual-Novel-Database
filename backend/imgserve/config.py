@@ -18,7 +18,6 @@ class Config:
     # of thread count.
     WAITRESS_THREADS = int(os.environ.get('IMGSERVE_WAITRESS_THREADS', '64'))
 
-    # Database configuration
     SQLALCHEMY_DATABASE_URI = os.environ['IMGSERVE_DB_URL']
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
@@ -26,7 +25,6 @@ class Config:
         'pool_recycle': 300,
     }
 
-    # Cache configuration
     CACHE_TYPE = 'redis'
     CACHE_REDIS_URL = os.environ['IMGSERVE_CACHE_REDIS_URL']
     CACHE_DEFAULT_TIMEOUT = 300
@@ -36,7 +34,6 @@ class Config:
     REDIS_URL = os.environ['IMGSERVE_REDIS_URL']
     REDIS_DECODE_RESPONSES = False
 
-    # Celery configuration
     CELERY_DEFAULT_QUEUE = os.environ['IMGSERVE_CELERY_DEFAULT_QUEUE']
     CELERY_BROKER_URL = os.environ['IMGSERVE_CELERY_BROKER_URL']
     CELERY_RESULT_BACKEND = os.environ['IMGSERVE_CELERY_RESULT_BACKEND']
@@ -47,13 +44,11 @@ class Config:
     CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
     FLOWER_PORT = os.environ['IMGSERVE_FLOWER_PORT']
 
-    # Scheduler configuration
     SCHEDULER_API_ENABLED = True
     # Timezone the cron schedules (incl. the CRAWL_HOURS off-peak window) are
     # interpreted in. Set to the user base's timezone so "off-peak" is real.
     SCHEDULER_TIMEZONE = os.environ.get('SCHEDULER_TIMEZONE', 'Asia/Shanghai')
 
-    # Data folder configuration
     DATA_FOLDER = os.environ['DATA_FOLDER']
     TEMP_FOLDER = os.path.join(DATA_FOLDER, 'tmp')
     IMAGE_FOLDER = os.path.join(DATA_FOLDER, 'images')
