@@ -1,6 +1,7 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_migrate import Migrate
+from werkzeug.exceptions import HTTPException
 from .config import Config
 from .extensions import (
     ExtSQLAchemy, ExtCache, ExtCelery, ExtAPScheduler
@@ -78,6 +79,10 @@ def create_app(config_class=Config, enable_scheduler=True):
 
     @app.errorhandler(Exception)
     def handle_exception(e):
+        # A handler for Exception also catches HTTPException, which would turn
+        # every abort() into a 500.
+        if isinstance(e, HTTPException):
+            return e
         app.logger.error(f"Unhandled exception: {e}", exc_info=True)
         return jsonify(error="Internal server error"), 500
 

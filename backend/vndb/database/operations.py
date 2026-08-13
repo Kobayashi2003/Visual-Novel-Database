@@ -5,6 +5,7 @@ from functools import wraps
 from sqlalchemy import asc, desc
 
 from vndb import db
+from vndb.logger import logger
 from vndb.utils.ids import formatId
 from .models import MODEL_MAP, ModelType
 
@@ -15,13 +16,11 @@ def db_transaction(func):
         try:
             with db.session.begin_nested():
                 result = func(*args, **kwargs)
-            if result is None:
-                return None
             db.session.commit()
             return result
-        except Exception as e:
+        except Exception:
             db.session.rollback()
-            print(f"Error in {func.__name__}: {str(e)}")
+            logger.exception(f"{func.__name__} failed")
             return None
     return wrapper
 
