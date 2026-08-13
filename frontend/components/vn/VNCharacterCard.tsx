@@ -14,7 +14,7 @@ import { displayName } from "@/lib/original"
 import { groupTraits } from "@/lib/traits"
 import { characterSpoiler } from "@/lib/characters"
 import { useSearchContext } from "@/context/SearchContext"
-import { useDictionary } from "@/hooks/useDictionary"
+import { useTerm } from "@/hooks/useTerm"
 import { useCharacterFull } from "@/hooks/useCharacterFull"
 import { InlineList } from "@/components/detail/InfoPrimitives"
 import { ImageWithFallback } from "@/components/common/ImageWithFallback"
@@ -92,7 +92,7 @@ export function VNCharacterCard({ vnId, base, role, sexualLevel, violenceLevel, 
 
   // Original-text mode: render trait names via transserve (Japanese), falling
   // back to the English name for anything the dictionary doesn't have.
-  const translate = useDictionary((full?.traits ?? []).map(t => t.name), showOriginal)
+  const translate = useTerm((full?.traits ?? []).map(t => t.name), showOriginal)
 
   // This character's own spoiler weight in *this* VN — tints the card edge so a
   // revealed spoiler character stands out from ordinary ones.

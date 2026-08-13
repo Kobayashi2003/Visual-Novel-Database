@@ -540,22 +540,22 @@ export const api = {
       fetchUserserve<{ message: string }>(`${typeRoute(type)}/r${markId}`, "DELETE", undefined, abortSignal),
   },
 
-  /* Transserve: English → Japanese dictionary (used to localise tag / trait
+  /* Transserve: English → Japanese term base (used to localise tag / trait
      names in original-text mode). `fallback` (default true) makes the backend
-     echo the source word for any name it doesn't have a translation for, so
+     echo the source term for any name it doesn't have a translation for, so
      callers always get a displayable string. The response maps each *input*
-     word to its target; `matched` flags which were real dictionary hits. */
+     term to its target; `matched` flags which were real hits. */
   translate: {
-    dictionary: async (
-      words: string[],
+    term: async (
+      terms: string[],
       fallback = true,
       abortSignal?: AbortSignal,
     ): Promise<{ results: Record<string, string | null>; matched: Record<string, boolean> }> => {
-      if (!words.length) return { results: {}, matched: {} }
-      return fetchJson(`${getBaseUrl("transserve")}/dictionary/lookup`, {
+      if (!terms.length) return { results: {}, matched: {} }
+      return fetchJson(`${getBaseUrl("transserve")}/term/lookup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ words, fallback }),
+        body: JSON.stringify({ terms, fallback }),
         signal: abortSignal,
       }, "Transserve")
     },

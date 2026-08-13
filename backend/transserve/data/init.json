@@ -2,7 +2,7 @@
  "source_lang": "en",
  "target_lang": "ja",
  "_comment": "Combined transserve initialization file (en->ja). Seed everything in one shot with `flask seed-init` (loads both halves below; pass --replace to reinitialize). \"dictionary\" holds tag/trait NAME translations (short, keyed by source name, grouped by category). \"passages\" is the translation memory of tag/trait DESCRIPTIONS (long-form, VNDB markup preserved and validated at seed time). Names regenerate via seed-dictionary; passages were hand-translated from VNDB descriptions.",
- "dictionary": {
+ "terms": {
   "tag": {
    "100% Completion Bonus": "100%達成ボーナス",
    "1001 Nights": "千夜一夜物語",

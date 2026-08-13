@@ -5,7 +5,7 @@ import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { enumLabel } from "@/lib/enums"
 import { useSpoilerLevel } from "@/hooks/useSpoilerLevel"
-import { useDictionary } from "@/hooks/useDictionary"
+import { useTerm } from "@/hooks/useTerm"
 import { useSearchContext } from "@/context/SearchContext"
 import type { VN } from "@/lib/types"
 
@@ -27,7 +27,7 @@ export function VNTags({ tags, sexualLevel }: VNTagsProps) {
   // Original-text mode: render tag names via transserve (Japanese), falling
   // back to the English name for anything the dictionary doesn't have.
   const { showOriginal } = useSearchContext()
-  const translate = useDictionary(tags.map(t => t.name), showOriginal)
+  const translate = useTerm(tags.map(t => t.name), showOriginal)
 
   // Group by category, sort by rating desc within each group
   const grouped = CATEGORY_ORDER.reduce<Record<string, VNTag[]>>((acc, cat) => {

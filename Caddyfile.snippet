@@ -107,10 +107,10 @@ handle_path /vndb/* {
 
 handle_path /transserve/* {
 	route {
-		# Lookups only — the dictionary / passage write routes stay loopback-only.
+		# Lookups only — the term / passage write routes stay loopback-only.
 		@vndb_trans_public {
 			method POST
-			path /dictionary/lookup /passage/lookup
+			path /term/lookup /passage/lookup
 		}
 		handle @vndb_trans_public {
 			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {

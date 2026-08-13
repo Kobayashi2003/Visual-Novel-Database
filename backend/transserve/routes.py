@@ -1,3 +1,9 @@
+"""HTTP surface. Request and response shapes are specified in
+docs/api/transserve.yaml — the docstrings here cover only the reasoning that a
+schema cannot express."""
+
+import re
+
 from flask import Blueprint, abort, jsonify, request
 
 from .service import TranslationService, TranslationNotImplemented
@@ -50,6 +56,18 @@ def handle_validation_error(e):
     return jsonify(error=e.error_code, message=e.message), e.http_status
 
 
+_HASH_RE = re.compile(r'^[0-9a-f]{64}$')
+
+
+def _hash_or_400(raw: str) -> str:
+    """A passage is addressed by the hash of its normalized source. Validating
+    the shape here keeps `/passage/lookup` and `/passage/init` from being read
+    as hashes and 404-ing confusingly."""
+    if not _HASH_RE.match(raw or ''):
+        abort(400, description="Passage id must be a 64-character lowercase hex hash")
+    return raw
+
+
 def _service():
     """Build a TranslationService for the request, honouring optional
     ?source=/&target= overrides (defaults come from config)."""
@@ -63,69 +81,63 @@ def hello_world():
     return jsonify({"message": "TRANSSERVE"})
 
 
+@api_bp.route('/stats', methods=['GET'])
+def stats():
+    """How much is stored for this language pair."""
+    service = _service()
+    return jsonify({
+        "terms": service.count_term(),
+        "passages": service.count_passage(),
+        "source_lang": service.source_lang,
+        "target_lang": service.target_lang,
+    })
+
+
 # ----------------------------------------
-# Dictionary — lookup (implemented)
+# Term base — lookup (implemented)
 # ----------------------------------------
 
-@api_bp.route('/dictionary/lookup', methods=['POST'])
-def dictionary_lookup_batch():
-    """Batch lookup. Body: {"words": ["School", "Maid", ...], "fallback"?: bool}.
-
-    Returns {"results": {word: target, ...}, "matched": {word: bool, ...}}.
-
-    `fallback` controls what an unknown word maps to in `results`:
-      - false (default): null — lets a caller tell "known" from "unknown".
-      - true: the original word itself — so a display caller (e.g. the frontend
-        in original-text mode) can render tag/trait names through the
-        dictionary and safely fall back to the source text when there is no
-        translation yet. `matched` always reports which words were real hits.
-    """
+@api_bp.route('/term/lookup', methods=['POST'])
+def term_lookup_batch():
+    """`fallback=true` maps an unknown term to itself rather than null, so a
+    display caller (the frontend in original-text mode) always has something to
+    render. `matched` reports the real hits either way."""
     body = request.get_json(silent=True) or {}
-    words = body.get('words')
-    if not isinstance(words, list):
-        raise ValidationError("Body must include a 'words' list.")
+    terms = body.get('terms')
+    if not isinstance(terms, list):
+        raise ValidationError("Body must include a 'terms' list.")
     fallback = bool(body.get('fallback', False))
 
-    found = _service().lookup_batch(words)  # {word: translation | None}
-    matched = {word: found.get(word) is not None for word in words}
+    found = _service().lookup_term_batch(terms)  # {term: translation | None}
+    matched = {t: found.get(t) is not None for t in terms}
     if fallback:
-        results = {word: (found[word] if found.get(word) is not None else word)
-                   for word in words}
+        results = {t: (found[t] if found.get(t) is not None else t) for t in terms}
     else:
         results = found
     return jsonify({"results": results, "matched": matched})
 
 
-@api_bp.route('/dictionary/<path:word>', methods=['GET'])
-def dictionary_lookup(word):
-    """Single lookup. Returns {source, target, matched}.
-
-    Unknown word: 404 by default; with ?fallback=true returns 200 and echoes
-    the source word as `target` (matched=false), for display call sites that
-    always need something to show."""
+@api_bp.route('/term/<path:term>', methods=['GET'])
+def term_lookup(term):
+    """`?fallback=true` returns 200 echoing the source instead of 404, for
+    display call sites that always need something to show."""
     service = _service()
-    translation = service.lookup(word)
+    translation = service.lookup_term(term)
     fallback = parse_bool(request.args.get('fallback'), False)
     if translation is None and not fallback:
-        return jsonify(error="not_found", message=f"No translation for: {word}"), 404
+        return jsonify(error="not_found", message=f"No translation for: {term}"), 404
     return jsonify({
-        "source": word,
-        "target": translation if translation is not None else word,
+        "source": term,
+        "target": translation if translation is not None else term,
         "matched": translation is not None,
         "source_lang": service.source_lang,
         "target_lang": service.target_lang,
     })
 
 
-@api_bp.route('/dictionary', methods=['GET'])
-def dictionary_list():
-    """Paginated listing. Query: ?category=&search=&page=&limit=&source=&target=."""
-    from . import operations
-    source = request.args.get('source', 'en')
-    target = request.args.get('target', 'ja')
-    return jsonify(operations.list_entries(
-        source_lang=source,
-        target_lang=target,
+@api_bp.route('/term', methods=['GET'])
+def term_list():
+    return jsonify(_service().list_term(
         category=request.args.get('category'),
         search=request.args.get('search'),
         page=parse_int(request.args.get('page'), 1, 1),
@@ -134,20 +146,17 @@ def dictionary_list():
 
 
 # ----------------------------------------
-# Dictionary — initialization & append
+# Term base — initialization & append
 # ----------------------------------------
 
-@api_bp.route('/dictionary/init', methods=['POST'])
-def dictionary_init():
-    """Initialize the dictionary. Body:
-        {"entries": [{"source","target","category"?}, ...],
-         "category"?: default-category, "replace"?: bool}
-    With replace=true the language pair is cleared first."""
+@api_bp.route('/term/init', methods=['POST'])
+def term_init():
+    """`replace=true` clears the language pair first."""
     body = request.get_json(silent=True) or {}
     entries = body.get('entries')
     if not isinstance(entries, list) or not entries:
         raise ValidationError("Body must include a non-empty 'entries' list.")
-    count = _service().init_dictionary(
+    count = _service().init_term(
         entries,
         default_category=body.get('category'),
         replace=bool(body.get('replace', False)),
@@ -155,26 +164,22 @@ def dictionary_init():
     return jsonify({"submitted": count}), 201
 
 
-@api_bp.route('/dictionary', methods=['POST'])
-def dictionary_append():
-    """Append/merge entries (upsert). Body:
-        {"entries": [{"source","target","category"?}, ...], "category"?: default}"""
+@api_bp.route('/term', methods=['POST'])
+def term_append():
+    """Upsert by source text — unlike /term/init this never clears."""
     body = request.get_json(silent=True) or {}
     entries = body.get('entries')
     if not isinstance(entries, list) or not entries:
         raise ValidationError("Body must include a non-empty 'entries' list.")
-    count = _service().append(entries, default_category=body.get('category'))
+    count = _service().append_term(entries, default_category=body.get('category'))
     return jsonify({"submitted": count}), 201
 
 
-@api_bp.route('/dictionary/<path:word>', methods=['DELETE'])
-def dictionary_delete(word):
-    from . import operations
-    service = _service()
-    deleted = operations.delete_entry(word, service.source_lang, service.target_lang)
-    if not deleted:
-        return jsonify(error="not_found", message=f"No dictionary entry for: {word}"), 404
-    return jsonify({"deleted": word})
+@api_bp.route('/term/<path:term>', methods=['DELETE'])
+def term_delete(term):
+    if not _service().delete_term(term):
+        return jsonify(error="not_found", message=f"No term for: {term}"), 404
+    return jsonify({"deleted": term})
 
 
 # ----------------------------------------
@@ -183,19 +188,15 @@ def dictionary_delete(word):
 
 @api_bp.route('/passage/lookup', methods=['POST'])
 def passage_lookup_batch():
-    """Batch passage lookup. Body: {"texts": ["...", ...], "fallback"?: bool}.
-
-    Returns {"results": {text: translation, ...}, "matched": {text: bool, ...}}.
-    `fallback` mirrors /dictionary/lookup: false (default) maps an unknown
-    passage to null; true echoes the original source text so a display caller
-    always has something to render."""
+    """`fallback` mirrors /term/lookup. Keys are the source texts you sent, so
+    the result maps straight back onto the caller's own data."""
     body = request.get_json(silent=True) or {}
     texts = body.get('texts')
     if not isinstance(texts, list):
         raise ValidationError("Body must include a 'texts' list.")
     fallback = bool(body.get('fallback', False))
 
-    found = _service().lookup_passages_batch(texts)  # {text: translation | None}
+    found = _service().lookup_passage_batch(texts)  # {text: translation | None}
     matched = {t: found.get(t) is not None for t in texts}
     if fallback:
         results = {t: (found[t] if found.get(t) is not None else t) for t in texts}
@@ -204,15 +205,20 @@ def passage_lookup_batch():
     return jsonify({"results": results, "matched": matched})
 
 
+@api_bp.route('/passage/<source_hash>', methods=['GET'])
+def passage_get(source_hash):
+    """One stored passage, addressed by its source hash. The hash is an opaque
+    handle taken from a listing — do not compute it client-side."""
+    item = _service().get_passage(_hash_or_400(source_hash))
+    if item is None:
+        return jsonify(error="not_found",
+                       message=f"No passage for hash: {source_hash}"), 404
+    return jsonify(dict(item))
+
+
 @api_bp.route('/passage', methods=['GET'])
 def passage_list():
-    """Paginated listing. Query: ?entity_type=&search=&page=&limit=&source=&target=."""
-    from . import operations
-    source = request.args.get('source', 'en')
-    target = request.args.get('target', 'ja')
-    return jsonify(operations.list_passages(
-        source_lang=source,
-        target_lang=target,
+    return jsonify(_service().list_passage(
         entity_type=request.args.get('entity_type'),
         search=request.args.get('search'),
         page=parse_int(request.args.get('page'), 1, 1),
@@ -222,16 +228,14 @@ def passage_list():
 
 @api_bp.route('/passage/init', methods=['POST'])
 def passage_init():
-    """Initialize the passage memory. Body:
-        {"entries": [{"source","target","entity_type"?,"category"?}, ...],
-         "entity_type"?: default, "category"?: default, "replace"?: bool}
-    With replace=true the language pair is cleared first. Each translation is
-    validated to preserve the source's VNDB markup tokens."""
+    """`replace=true` clears the language pair first. Every translation is
+    checked for VNDB markup preservation (see markup.py) and rejected if it
+    dropped, added or translated a token."""
     body = request.get_json(silent=True) or {}
     entries = body.get('entries')
     if not isinstance(entries, list) or not entries:
         raise ValidationError("Body must include a non-empty 'entries' list.")
-    count = _service().init_passages(
+    count = _service().init_passage(
         entries,
         default_entity=body.get('entity_type'),
         default_category=body.get('category'),
@@ -242,19 +246,25 @@ def passage_init():
 
 @api_bp.route('/passage', methods=['POST'])
 def passage_append():
-    """Append/merge passages (upsert). Body:
-        {"entries": [{"source","target","entity_type"?,"category"?}, ...],
-         "entity_type"?: default, "category"?: default}"""
+    """Upsert by source hash — unlike /passage/init this never clears."""
     body = request.get_json(silent=True) or {}
     entries = body.get('entries')
     if not isinstance(entries, list) or not entries:
         raise ValidationError("Body must include a non-empty 'entries' list.")
-    count = _service().append_passages(
+    count = _service().append_passage(
         entries,
         default_entity=body.get('entity_type'),
         default_category=body.get('category'),
     )
     return jsonify({"submitted": count}), 201
+
+
+@api_bp.route('/passage/<source_hash>', methods=['DELETE'])
+def passage_delete(source_hash):
+    if not _service().delete_passage(_hash_or_400(source_hash)):
+        return jsonify(error="not_found",
+                       message=f"No passage for hash: {source_hash}"), 404
+    return jsonify({"deleted": source_hash})
 
 
 # ----------------------------------------
@@ -263,8 +273,7 @@ def passage_append():
 
 @api_bp.route('/translate', methods=['POST'])
 def translate_text():
-    """Reserved future interface: translate arbitrary input text (English →
-    Japanese). Not implemented yet — returns 501."""
+    """Reserved; always 501 until an MT backend is wired in."""
     body = request.get_json(silent=True) or {}
     text = body.get('text', '')
     try:

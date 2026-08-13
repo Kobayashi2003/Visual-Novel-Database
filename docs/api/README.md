@@ -56,7 +56,7 @@ that the id once existed.
 ### Errors
 
 ```json
-{ "error": "not_found", "message": "No dictionary entry for: Maid" }
+{ "error": "not_found", "message": "No term for: Maid" }
 ```
 
 - `error` — a snake_case machine code. **Part of the contract**; each spec lists

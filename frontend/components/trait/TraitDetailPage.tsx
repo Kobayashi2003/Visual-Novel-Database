@@ -8,7 +8,7 @@ import type { Trait } from "@/lib/types"
 import { useEntity } from "@/hooks/useEntity"
 import { useUserContext } from "@/context/UserContext"
 import { useSearchContext } from "@/context/SearchContext"
-import { useDictionary } from "@/hooks/useDictionary"
+import { useTerm } from "@/hooks/useTerm"
 import { usePassage } from "@/hooks/usePassage"
 import { DetailShell, DetailStatus } from "@/components/detail/DetailShell"
 import { DetailHeader } from "@/components/detail/DetailHeader"
@@ -33,7 +33,7 @@ export function TraitDetailPage({ id }: TraitDetailPageProps) {
   // and the description (transserve passage memory) to Japanese, each falling
   // back to the original English while loading or when no translation exists.
   const { showOriginal } = useSearchContext()
-  const translateName = useDictionary(
+  const translateName = useTerm(
     trait ? [trait.name, ...(trait.group_name ? [trait.group_name] : [])] : [],
     showOriginal,
   )

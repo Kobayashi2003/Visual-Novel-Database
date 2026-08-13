@@ -14,7 +14,7 @@ from .models import MODEL_MAP
 from . import operations
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
-DEFAULT_DICTIONARY_FILE = os.path.join(DATA_DIR, 'dictionary.json')
+DEFAULT_TERMS_FILE = os.path.join(DATA_DIR, 'terms.json')
 DEFAULT_PASSAGES_FILE = os.path.join(DATA_DIR, 'passages.json')
 DEFAULT_INIT_FILE = os.path.join(DATA_DIR, 'init.json')
 
@@ -26,7 +26,7 @@ def register_commands(app):
     app.cli.add_command(inspect_db)
     app.cli.add_command(backup_db)
     app.cli.add_command(restore_db)
-    app.cli.add_command(seed_dictionary)
+    app.cli.add_command(seed_terms)
     app.cli.add_command(seed_passages)
     app.cli.add_command(seed_init)
     app.cli.add_command(export_init)
@@ -88,14 +88,14 @@ def inspect_db():
         print("\n")
 
 
-@click.command('seed-dictionary')
-@click.option('-f', '--file', 'file_path', default=DEFAULT_DICTIONARY_FILE,
-              help='Path to the dictionary JSON file.')
+@click.command('seed-terms')
+@click.option('-f', '--file', 'file_path', default=DEFAULT_TERMS_FILE,
+              help='Path to the term JSON file.')
 @click.option('--replace', is_flag=True,
               help='Clear the language pair before loading (full reinitialize).')
 @with_appcontext
-def seed_dictionary(file_path, replace):
-    """Seed the dictionary DB from a JSON file (default: data/dictionary.json).
+def seed_terms(file_path, replace):
+    """Seed the term base from a JSON file (default: data/terms.json).
 
     File shape:
         {
@@ -107,7 +107,7 @@ def seed_dictionary(file_path, replace):
     as a category. `source_lang` / `target_lang` are optional (default en→ja).
     """
     if not os.path.exists(file_path):
-        click.echo(f"Dictionary file not found: {file_path}", err=True)
+        click.echo(f"Term file not found: {file_path}", err=True)
         raise click.Abort()
 
     with open(file_path, encoding='utf-8') as f:
@@ -125,14 +125,14 @@ def seed_dictionary(file_path, replace):
                 entries.append({'source': source, 'target': target, 'category': category})
 
     if not entries:
-        click.echo("No entries found in the dictionary file.", err=True)
+        click.echo("No entries found in the term file.", err=True)
         raise click.Abort()
 
-    submitted = operations.init_dictionary(
+    submitted = operations.init_term(
         entries, source_lang=source_lang, target_lang=target_lang, replace=replace)
-    total = operations.count_entries(source_lang, target_lang)
+    total = operations.count_term(source_lang, target_lang)
     click.echo(f"Seeded {submitted} entries ({source_lang}->{target_lang}); "
-               f"dictionary now holds {total} entries for this pair.")
+               f"term base now holds {total} entries for this pair.")
 
 
 @click.command('seed-passages')
@@ -175,12 +175,12 @@ def seed_passages(file_path, replace):
         raise click.Abort()
 
     try:
-        submitted = operations.init_passages(
+        submitted = operations.init_passage(
             entries, source_lang=source_lang, target_lang=target_lang, replace=replace)
     except operations.ValidationError as e:
         click.echo(f"Seed aborted: {e.message}", err=True)
         raise click.Abort()
-    total = operations.count_passages(source_lang, target_lang)
+    total = operations.count_passage(source_lang, target_lang)
     click.echo(f"Seeded {submitted} passages ({source_lang}->{target_lang}); "
                f"memory now holds {total} passages for this pair.")
 
@@ -192,17 +192,17 @@ def seed_passages(file_path, replace):
               help='Clear each language pair before loading (full reinitialize).')
 @with_appcontext
 def seed_init(file_path, replace):
-    """Seed both the dictionary and the passage TM from one combined init file
+    """Seed both the term base and the passage TM from one combined init file
     (default: transserve/init.json).
 
     File shape:
         {
           "source_lang": "en", "target_lang": "ja",
-          "dictionary": {"tag": {"name": "訳", ...}, "trait": {...}},
+          "terms": {"tag": {"name": "訳", ...}, "trait": {...}},
           "passages":  [{"source": "...", "target": "...", "entity_type": "tag"}, ...]
         }
     `source_lang` / `target_lang` are optional (default en->ja) and apply to both
-    halves. Dictionary entries load like `seed-dictionary`; passages load like
+    halves. Term entries load like `seed-terms`; passages load like
     `seed-passages` (markup preservation is validated, a bad entry aborts).
     """
     if not os.path.exists(file_path):
@@ -215,10 +215,11 @@ def seed_init(file_path, replace):
     source_lang = data.get('source_lang', 'en')
     target_lang = data.get('target_lang', 'ja')
 
-    # --- dictionary half ---
-    dictionary = data.get('dictionary') or {}
+    # --- term half ---
+    # Accept the legacy 'dictionary' key so older exports still load.
+    terms_by_category = data.get('terms') or data.get('dictionary') or {}
     dict_entries = []
-    for category, mapping in dictionary.items():
+    for category, mapping in terms_by_category.items():
         if not isinstance(mapping, dict):
             continue
         for source, target in mapping.items():
@@ -226,10 +227,10 @@ def seed_init(file_path, replace):
                 dict_entries.append({'source': source, 'target': target, 'category': category})
 
     if dict_entries:
-        operations.init_dictionary(
+        operations.init_term(
             dict_entries, source_lang=source_lang, target_lang=target_lang, replace=replace)
-    dict_total = operations.count_entries(source_lang, target_lang)
-    click.echo(f"Dictionary: seeded {len(dict_entries)} entries; "
+    dict_total = operations.count_term(source_lang, target_lang)
+    click.echo(f"Terms: seeded {len(dict_entries)} entries; "
                f"now holds {dict_total} ({source_lang}->{target_lang}).")
 
     # --- passages half ---
@@ -237,12 +238,12 @@ def seed_init(file_path, replace):
     passage_entries = [p for p in passages if p.get('source') and p.get('target')]
     if passage_entries:
         try:
-            operations.init_passages(
+            operations.init_passage(
                 passage_entries, source_lang=source_lang, target_lang=target_lang, replace=replace)
         except operations.ValidationError as e:
             click.echo(f"Passage seed aborted: {e.message}", err=True)
             raise click.Abort()
-    passage_total = operations.count_passages(source_lang, target_lang)
+    passage_total = operations.count_passage(source_lang, target_lang)
     click.echo(f"Passages: seeded {len(passage_entries)} entries; "
                f"memory now holds {passage_total} ({source_lang}->{target_lang}).")
 
@@ -256,36 +257,36 @@ def seed_init(file_path, replace):
               help='Target language to export (default: app config / ja).')
 @with_appcontext
 def export_init(file_path, source_lang, target_lang):
-    """Export the dictionary + passage TM to a combined init JSON file.
+    """Export the term base + passage TM to a combined init JSON file.
 
     The inverse of `seed-init`: dumps the current DB in exactly the shape
     `seed-init` reads, so the bundled seed (data/init.json) can be refreshed
-    from the live translation memory before a release. Dictionary rows are
+    from the live translation memory before a release. Term rows are
     grouped by `category`; passages become a flat list carrying `entity_type`
     (and `category` when set). Only the chosen language pair is exported, to
     mirror seed-init (which applies one pair to the whole file). Output is
     deterministically ordered so re-exports produce clean diffs.
     """
-    from .models import DictionaryEntry, PassageEntry
+    from .models import TermEntry, PassageEntry
 
     source_lang = source_lang or current_app.config.get('SOURCE_LANG', 'en')
     target_lang = target_lang or current_app.config.get('TARGET_LANG', 'ja')
 
     # Sorting is done in Python (codepoint order on the source text), not in SQL:
     # the output must be byte-stable across machines, and a DB ORDER BY would
-    # follow the server's collation instead. Categories and dictionary entries
+    # follow the server's collation instead. Categories and term entries
     # sort by source text; passages sort by (entity_type, source text) so each
     # entity group stays contiguous.
 
-    # --- dictionary half: {category: {source_text: target_text}} ---
-    dict_rows = (db.session.query(DictionaryEntry)
-                 .filter(DictionaryEntry.source_lang == source_lang)
-                 .filter(DictionaryEntry.target_lang == target_lang)
+    # --- term half: {category: {source_text: target_text}} ---
+    dict_rows = (db.session.query(TermEntry)
+                 .filter(TermEntry.source_lang == source_lang)
+                 .filter(TermEntry.target_lang == target_lang)
                  .all())
     grouped: dict[str, dict] = {}
     for row in dict_rows:
         grouped.setdefault(row.category or 'general', {})[row.source_text] = row.target_text
-    dictionary = {
+    terms_out = {
         cat: {src: grouped[cat][src] for src in sorted(grouped[cat])}
         for cat in sorted(grouped)
     }
@@ -317,16 +318,16 @@ def export_init(file_path, source_lang, target_lang):
     out = {'source_lang': source_lang, 'target_lang': target_lang}
     if comment:
         out['_comment'] = comment
-    out['dictionary'] = dictionary
+    out['terms'] = terms_out
     out['passages'] = passages
 
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
 
-    dict_total = sum(len(v) for v in dictionary.values())
-    breakdown = ', '.join(f'{k}:{len(v)}' for k, v in dictionary.items())
-    click.echo(f"Exported {dict_total} dictionary entries ({breakdown}) and "
+    term_total = sum(len(v) for v in terms_out.values())
+    breakdown = ', '.join(f'{k}:{len(v)}' for k, v in terms_out.items())
+    click.echo(f"Exported {term_total} term entries ({breakdown}) and "
                f"{len(passages)} passages ({source_lang}->{target_lang}) to {file_path}.")
 
 

@@ -6,10 +6,10 @@ from sqlalchemy.sql import func
 from transserve import db
 
 
-class DictionaryEntry(db.Model):
-    """A single source-word → target-word translation pair.
+class TermEntry(db.Model):
+    """A single source-term → target-term translation pair.
 
-    The dictionary is intentionally generic (any `source_lang` → `target_lang`
+    The term base is intentionally generic (any `source_lang` → `target_lang`
     pair), but is seeded for English → Japanese and currently used to translate
     VNDB tag / trait names. Lookups are case/space-insensitive: every entry
     stores a normalized `source_key` (lower-cased, whitespace-collapsed) which
@@ -17,7 +17,7 @@ class DictionaryEntry(db.Model):
     keeps the original display form.
     """
 
-    __tablename__ = 'dictionary'
+    __tablename__ = 'terms'
 
     id = Column(Integer, primary_key=True)
     source_lang = Column(String(8), nullable=False, default='en')
@@ -34,8 +34,8 @@ class DictionaryEntry(db.Model):
 
     __table_args__ = (
         UniqueConstraint('source_lang', 'target_lang', 'source_key',
-                         name='uq_dictionary_langs_key'),
-        Index('ix_dictionary_lookup', 'source_lang', 'target_lang', 'source_key'),
+                         name='uq_term_langs_key'),
+        Index('ix_term_lookup', 'source_lang', 'target_lang', 'source_key'),
     )
 
     def __iter__(self):
@@ -49,14 +49,14 @@ class DictionaryEntry(db.Model):
         yield 'updated_at', self.updated_at.isoformat() if self.updated_at else None
 
     def __repr__(self):
-        return (f"DictionaryEntry(id={self.id!r}, {self.source_lang}->{self.target_lang}, "
+        return (f"TermEntry(id={self.id!r}, {self.source_lang}->{self.target_lang}, "
                 f"source={self.source_text!r}, target={self.target_text!r})")
 
 
 class PassageEntry(db.Model):
     """A long-form source→target translation: one whole passage of text.
 
-    Where `DictionaryEntry` translates short tag/trait *names*, this is a
+    Where `TermEntry` translates short tag/trait *names*, this is a
     translation memory for *passages* — primarily VNDB `description` text, which
     is long and effectively immutable. Lookups key on a hash of the normalized
     source (the full text is far too long for a `String` index), so a passage is
@@ -94,6 +94,7 @@ class PassageEntry(db.Model):
 
     def __iter__(self):
         yield 'id', self.id
+        yield 'source_hash', self.source_hash
         yield 'source_lang', self.source_lang
         yield 'target_lang', self.target_lang
         yield 'source', self.source_text
@@ -108,9 +109,9 @@ class PassageEntry(db.Model):
                 f"hash={self.source_hash[:12]!r}…)")
 
 
-ModelType = Union[DictionaryEntry, PassageEntry]
+ModelType = Union[TermEntry, PassageEntry]
 
 MODEL_MAP = {
-    'dictionary': DictionaryEntry,
+    'terms': TermEntry,
     'passages': PassageEntry,
 }

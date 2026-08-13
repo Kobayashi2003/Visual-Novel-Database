@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from transserve import db
 from . import markup
-from .models import DictionaryEntry, PassageEntry
+from .models import TermEntry, PassageEntry
 
 
 class ValidationError(Exception):
@@ -27,13 +27,13 @@ class ValidationError(Exception):
 
 
 def normalize_key(text: str) -> str:
-    """Normalize a source word into its lookup key: trim, collapse internal
+    """Normalize a source term into its lookup key: trim, collapse internal
     whitespace, and lower-case. Matching is therefore case- and
     spacing-insensitive while the original form is preserved in `source_text`."""
     return re.sub(r'\s+', ' ', str(text)).strip().lower()
 
 
-def _coerce_entries(entries: Iterable[dict], default_category: str | None,
+def _coerce_terms(entries: Iterable[dict], default_category: str | None,
                     source_lang: str, target_lang: str) -> list[dict]:
     """Validate and shape raw entry dicts into rows ready for bulk upsert.
 
@@ -61,19 +61,19 @@ def _coerce_entries(entries: Iterable[dict], default_category: str | None,
     return list(rows.values())
 
 
-def upsert_entries(entries: Iterable[dict], default_category: str | None = None,
-                   source_lang: str = 'en', target_lang: str = 'ja') -> int:
-    """Insert or update dictionary entries (append/merge semantics).
+def append_term(entries: Iterable[dict], default_category: str | None = None,
+                source_lang: str = 'en', target_lang: str = 'ja') -> int:
+    """Insert or update term entries (append/merge semantics).
 
     Conflicts on (source_lang, target_lang, source_key) update the translation,
     display form and category in place. Returns the number of rows submitted."""
-    rows = _coerce_entries(entries, default_category, source_lang, target_lang)
+    rows = _coerce_terms(entries, default_category, source_lang, target_lang)
     if not rows:
         return 0
 
-    stmt = pg_insert(DictionaryEntry).values(rows)
+    stmt = pg_insert(TermEntry).values(rows)
     stmt = stmt.on_conflict_do_update(
-        constraint='uq_dictionary_langs_key',
+        constraint='uq_term_langs_key',
         set_={
             'source_text': stmt.excluded.source_text,
             'target_text': stmt.excluded.target_text,
@@ -86,83 +86,83 @@ def upsert_entries(entries: Iterable[dict], default_category: str | None = None,
     return len(rows)
 
 
-def init_dictionary(entries: Iterable[dict], default_category: str | None = None,
-                    source_lang: str = 'en', target_lang: str = 'ja',
-                    replace: bool = False) -> int:
-    """Initialize the dictionary from a batch of entries.
+def init_term(entries: Iterable[dict], default_category: str | None = None,
+              source_lang: str = 'en', target_lang: str = 'ja',
+              replace: bool = False) -> int:
+    """Initialize the term base from a batch of entries.
 
     With `replace=True` the existing rows for the (source_lang, target_lang)
-    pair are cleared first, so the dictionary becomes exactly the provided set.
-    Otherwise this behaves like `upsert_entries` (merge into what's there)."""
+    pair are cleared first, so the term base becomes exactly the provided set.
+    Otherwise this behaves like `append_term` (merge into what's there)."""
     if replace:
-        (db.session.query(DictionaryEntry)
-         .filter(DictionaryEntry.source_lang == source_lang)
-         .filter(DictionaryEntry.target_lang == target_lang)
+        (db.session.query(TermEntry)
+         .filter(TermEntry.source_lang == source_lang)
+         .filter(TermEntry.target_lang == target_lang)
          .delete(synchronize_session=False))
         db.session.commit()
-    return upsert_entries(entries, default_category, source_lang, target_lang)
+    return append_term(entries, default_category, source_lang, target_lang)
 
 
-def lookup(word: str, source_lang: str = 'en', target_lang: str = 'ja') -> str | None:
-    """Return the target translation for a single source word, or None."""
-    key = normalize_key(word)
+def lookup_term(term: str, source_lang: str = 'en', target_lang: str = 'ja') -> str | None:
+    """Return the target translation for a single source term, or None."""
+    key = normalize_key(term)
     if not key:
         return None
     row = db.session.execute(
-        select(DictionaryEntry.target_text)
-        .where(DictionaryEntry.source_lang == source_lang)
-        .where(DictionaryEntry.target_lang == target_lang)
-        .where(DictionaryEntry.source_key == key)
+        select(TermEntry.target_text)
+        .where(TermEntry.source_lang == source_lang)
+        .where(TermEntry.target_lang == target_lang)
+        .where(TermEntry.source_key == key)
     ).first()
     return row[0] if row else None
 
 
-def lookup_batch(words: Iterable[str], source_lang: str = 'en',
-                 target_lang: str = 'ja') -> dict[str, str | None]:
-    """Look up several words at once. Returns a map keyed by the *original*
-    input words; an unknown word maps to None. One query for the whole batch."""
-    originals = list(words)
-    keys = {normalize_key(w): w for w in originals if normalize_key(w)}
+def lookup_term_batch(terms: Iterable[str], source_lang: str = 'en',
+                      target_lang: str = 'ja') -> dict[str, str | None]:
+    """Look up several terms at once. Returns a map keyed by the *original*
+    input terms; an unknown term maps to None. One query for the whole batch."""
+    originals = list(terms)
+    keys = {normalize_key(t): t for t in originals if normalize_key(t)}
     found: dict[str, str] = {}
     if keys:
         rows = db.session.execute(
-            select(DictionaryEntry.source_key, DictionaryEntry.target_text)
-            .where(DictionaryEntry.source_lang == source_lang)
-            .where(DictionaryEntry.target_lang == target_lang)
-            .where(DictionaryEntry.source_key.in_(list(keys.keys())))
+            select(TermEntry.source_key, TermEntry.target_text)
+            .where(TermEntry.source_lang == source_lang)
+            .where(TermEntry.target_lang == target_lang)
+            .where(TermEntry.source_key.in_(list(keys.keys())))
         ).all()
         found = {row[0]: row[1] for row in rows}
-    return {w: found.get(normalize_key(w)) for w in originals}
+    return {t: found.get(normalize_key(t)) for t in originals}
 
 
-def get_entry(word: str, source_lang: str = 'en', target_lang: str = 'ja') -> DictionaryEntry | None:
-    key = normalize_key(word)
+def get_term(term: str, source_lang: str = 'en', target_lang: str = 'ja') -> TermEntry | None:
+    key = normalize_key(term)
     if not key:
         return None
-    return (db.session.query(DictionaryEntry)
-            .filter(DictionaryEntry.source_lang == source_lang)
-            .filter(DictionaryEntry.target_lang == target_lang)
-            .filter(DictionaryEntry.source_key == key)
+    return (db.session.query(TermEntry)
+            .filter(TermEntry.source_lang == source_lang)
+            .filter(TermEntry.target_lang == target_lang)
+            .filter(TermEntry.source_key == key)
             .first())
 
 
-def list_entries(source_lang: str = 'en', target_lang: str = 'ja',
-                 category: str | None = None, search: str | None = None,
-                 page: int = 1, limit: int = 50) -> dict[str, Any]:
-    """Paginated listing of dictionary entries with optional category/search."""
-    query = (db.session.query(DictionaryEntry)
-             .filter(DictionaryEntry.source_lang == source_lang)
-             .filter(DictionaryEntry.target_lang == target_lang))
+def list_term(source_lang: str = 'en', target_lang: str = 'ja',
+              category: str | None = None, search: str | None = None,
+              page: int = 1, limit: int = 50) -> dict[str, Any]:
+    """Paginated listing of term entries with optional category/search."""
+    query = (db.session.query(TermEntry)
+             .filter(TermEntry.source_lang == source_lang)
+             .filter(TermEntry.target_lang == target_lang))
     if category:
-        query = query.filter(DictionaryEntry.category == category)
+        query = query.filter(TermEntry.category == category)
     if search:
         like = f"%{normalize_key(search)}%"
-        query = query.filter(DictionaryEntry.source_key.ilike(like))
+        query = query.filter(TermEntry.source_key.ilike(like))
 
     total = query.count()
     page = max(1, page)
     limit = min(max(1, limit), 200)
-    items = (query.order_by(DictionaryEntry.source_key)
+    items = (query.order_by(TermEntry.source_key)
              .offset((page - 1) * limit).limit(limit).all())
     return {
         'results': [dict(item) for item in items],
@@ -171,17 +171,17 @@ def list_entries(source_lang: str = 'en', target_lang: str = 'ja',
     }
 
 
-def count_entries(source_lang: str | None = None, target_lang: str | None = None) -> int:
-    query = db.session.query(DictionaryEntry)
+def count_term(source_lang: str | None = None, target_lang: str | None = None) -> int:
+    query = db.session.query(TermEntry)
     if source_lang:
-        query = query.filter(DictionaryEntry.source_lang == source_lang)
+        query = query.filter(TermEntry.source_lang == source_lang)
     if target_lang:
-        query = query.filter(DictionaryEntry.target_lang == target_lang)
+        query = query.filter(TermEntry.target_lang == target_lang)
     return query.count()
 
 
-def delete_entry(word: str, source_lang: str = 'en', target_lang: str = 'ja') -> bool:
-    item = get_entry(word, source_lang, target_lang)
+def delete_term(term: str, source_lang: str = 'en', target_lang: str = 'ja') -> bool:
+    item = get_term(term, source_lang, target_lang)
     if not item:
         return False
     db.session.delete(item)
@@ -236,9 +236,9 @@ def _coerce_passages(entries: Iterable[dict], default_entity: str | None,
     return list(rows.values())
 
 
-def upsert_passages(entries: Iterable[dict], default_entity: str | None = None,
-                    default_category: str | None = None,
-                    source_lang: str = 'en', target_lang: str = 'ja') -> int:
+def append_passage(entries: Iterable[dict], default_entity: str | None = None,
+                   default_category: str | None = None,
+                   source_lang: str = 'en', target_lang: str = 'ja') -> int:
     """Insert or update passage translations (append/merge semantics). Conflicts
     on (source_lang, target_lang, source_hash) update the translation in place.
     Returns the number of rows submitted."""
@@ -263,10 +263,10 @@ def upsert_passages(entries: Iterable[dict], default_entity: str | None = None,
     return len(rows)
 
 
-def init_passages(entries: Iterable[dict], default_entity: str | None = None,
-                  default_category: str | None = None,
-                  source_lang: str = 'en', target_lang: str = 'ja',
-                  replace: bool = False) -> int:
+def init_passage(entries: Iterable[dict], default_entity: str | None = None,
+                 default_category: str | None = None,
+                 source_lang: str = 'en', target_lang: str = 'ja',
+                 replace: bool = False) -> int:
     """Initialize the passage memory from a batch. With `replace=True` the rows
     for this (source_lang, target_lang) pair are cleared first."""
     if replace:
@@ -275,7 +275,7 @@ def init_passages(entries: Iterable[dict], default_entity: str | None = None,
          .filter(PassageEntry.target_lang == target_lang)
          .delete(synchronize_session=False))
         db.session.commit()
-    return upsert_passages(entries, default_entity, default_category,
+    return append_passage(entries, default_entity, default_category,
                            source_lang, target_lang)
 
 
@@ -294,8 +294,8 @@ def lookup_passage(text: str, source_lang: str = 'en',
     return row[0] if row else None
 
 
-def lookup_passages_batch(texts: Iterable[str], source_lang: str = 'en',
-                          target_lang: str = 'ja') -> dict[str, str | None]:
+def lookup_passage_batch(texts: Iterable[str], source_lang: str = 'en',
+                         target_lang: str = 'ja') -> dict[str, str | None]:
     """Look up several passages at once. Returns a map keyed by the *original*
     input strings; an unknown passage maps to None. One query for the batch."""
     originals = list(texts)
@@ -313,9 +313,9 @@ def lookup_passages_batch(texts: Iterable[str], source_lang: str = 'en',
             for t in originals}
 
 
-def list_passages(source_lang: str = 'en', target_lang: str = 'ja',
-                  entity_type: str | None = None, search: str | None = None,
-                  page: int = 1, limit: int = 50) -> dict[str, Any]:
+def list_passage(source_lang: str = 'en', target_lang: str = 'ja',
+                 entity_type: str | None = None, search: str | None = None,
+                 page: int = 1, limit: int = 50) -> dict[str, Any]:
     """Paginated listing of passages with optional entity_type/search (search
     matches the source text)."""
     query = (db.session.query(PassageEntry)
@@ -338,8 +338,8 @@ def list_passages(source_lang: str = 'en', target_lang: str = 'ja',
     }
 
 
-def count_passages(source_lang: str | None = None,
-                   target_lang: str | None = None) -> int:
+def count_passage(source_lang: str | None = None,
+                  target_lang: str | None = None) -> int:
     query = db.session.query(PassageEntry)
     if source_lang:
         query = query.filter(PassageEntry.source_lang == source_lang)
@@ -348,16 +348,22 @@ def count_passages(source_lang: str | None = None,
     return query.count()
 
 
-def delete_passage(text: str, source_lang: str = 'en',
-                   target_lang: str = 'ja') -> bool:
-    h = passage_hash(text)
-    item = (db.session.query(PassageEntry)
+def get_passage(source_hash: str, source_lang: str = 'en',
+                target_lang: str = 'ja') -> PassageEntry | None:
+    """One passage addressed by its source hash, or None."""
+    return (db.session.query(PassageEntry)
             .filter(PassageEntry.source_lang == source_lang)
             .filter(PassageEntry.target_lang == target_lang)
-            .filter(PassageEntry.source_hash == h)
+            .filter(PassageEntry.source_hash == source_hash)
             .first())
+
+
+def delete_passage(source_hash: str, source_lang: str = 'en',
+                   target_lang: str = 'ja') -> bool:
+    item = get_passage(source_hash, source_lang, target_lang)
     if not item:
         return False
     db.session.delete(item)
     db.session.commit()
     return True
+

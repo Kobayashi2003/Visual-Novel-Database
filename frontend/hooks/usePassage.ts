@@ -1,6 +1,6 @@
 /** Single passage (long-form text) English → Japanese lookup against transserve.
  *
- * Companion to `useDictionary` (which handles short tag / trait *names*). Used by
+ * Companion to `useTerm` (which handles short tag / trait *names*). Used by
  * the tag / trait detail pages to localise the *description* in original-text
  * mode: pass the source text plus `enabled` (the SearchContext `showOriginal`
  * flag) and get back the string to render. While a request is in flight, when
