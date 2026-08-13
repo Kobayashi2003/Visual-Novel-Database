@@ -1,0 +1,1214 @@
+openapi: 3.1.0
+
+info:
+  title: userserve
+  version: "1.0"
+  description: |
+    Accounts, sessions, collections and ratings.
+
+    This is the only service that authenticates. Every other prefix is gated at
+    the Caddy edge by a `forward_auth` probe against `/auth/verify` here, so
+    userserve is both a normal API and the edge's authority on who is signed in.
+
+    **Sessions are cookie-based.** A successful sign-in sets four cookies: an
+    access token and a refresh token, each paired with a CSRF token. The
+    JavaScript-readable CSRF cookies must be echoed back in a header on any
+    unsafe method — see [Sessions](#sessions) below. Nothing is carried in an
+    `Authorization` header, so a browser needs no token handling of its own.
+
+    **Collections are per entity type.** A `{type}` path segment selects which
+    kind of VNDB entity a collection or rating applies to, using the same
+    single-letter keys VNDB itself uses (`v` visual novel, `c` character, …). A
+    *category* is one named collection ("Playing", "Wishlist"); a *mark* is one
+    entity inside it.
+
+    See ./README.md for the conventions shared by every service.
+
+servers:
+  - url: http://localhost:30709/userserve
+    description: Behind the Caddy edge
+  - url: http://localhost:5002
+    description: Direct, loopback only
+
+tags:
+  - name: session
+    description: Signing in and out, and the edge's auth probe
+  - name: account
+    description: Registration, profile, credentials
+  - name: categories
+    description: Named collections of entities
+  - name: marks
+    description: Entities inside a collection
+  - name: ratings
+    description: A 1–5 score on one entity
+
+paths:
+  /login:
+    post:
+      tags: [session]
+      summary: Start a session
+      description: |
+        Rate limited to 10/minute. The `username` field accepts **either** a
+        username or an email address — the client does not need to know which
+        the user typed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  description: Username or email address.
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Signed in. Sets the session cookies.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: |
+                Four cookies: `access_token_cookie` and `refresh_token_cookie`
+                (httpOnly), plus `csrf_access_token` and `csrf_refresh_token`
+                (readable by JavaScript).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: "`invalid_credentials` — unknown identifier or wrong password."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /logout:
+    post:
+      tags: [session]
+      summary: End the session
+      description: |
+        Revokes both the token used for this request and its paired refresh
+        token, then clears all four cookies. Accepts either token type, so a
+        client holding only a refresh token can still sign out.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          $ref: "#/components/responses/Message"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /refresh:
+    post:
+      tags: [session]
+      summary: Issue a new access token
+      description: |
+        Requires the **refresh** cookie, and echoes `csrf_refresh_token` rather
+        than `csrf_access_token`. Rate limited to 30/minute.
+
+        The frontend calls this proactively rather than waiting for a 401, so a
+        long-lived tab does not lose its session mid-action.
+      security:
+        - refreshCookie: []
+      responses:
+        "200":
+          description: A fresh access cookie is set.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/verify:
+    get:
+      tags: [session]
+      summary: Auth probe for the edge
+      description: |
+        Called by Caddy's `forward_auth` on **every** gated request, including
+        each image and each audio range request. Deliberately does no database
+        lookup — the token plus the revocation blocklist already answer the only
+        question being asked.
+
+        Not intended for clients; documented because it defines the edge's
+        behaviour.
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Live session.
+          headers:
+            X-User-Id:
+              schema: { type: string }
+              description: Passed upstream by the edge.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /register:
+    post:
+      tags: [account]
+      summary: Create an account
+      description: |
+        Requires a verification code emailed by `/send_verification_code`.
+        Rate limited to 10/hour. Signs the new user in on success.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password, code, invitation_code]
+              properties:
+                username: { type: string, minLength: 3, maxLength: 32 }
+                email: { type: string, format: email }
+                password: { type: string, format: password, minLength: 8, maxLength: 128 }
+                code:
+                  type: string
+                  description: The code emailed by `/send_verification_code`.
+                invitation_code:
+                  type: string
+                  description: |
+                    The field must be present, but its value is only checked
+                    when the instance sets `INVITATION_CODE`. On an open
+                    instance, send an empty string.
+      responses:
+        "201":
+          description: Created and signed in. Sets the session cookies.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+        "400":
+          description: |
+            Malformed body, or a validation failure — `username_too_short`,
+            `password_too_short`, `email_invalid_format`,
+            `invalid_verification_code`, `invalid_invitation_code`, …
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: "`username_taken` or `email_taken`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500":
+          description: "`registration_failed` — the account could not be written."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /send_verification_code:
+    post:
+      tags: [account]
+      summary: Email a verification code
+      description: |
+        Used before `/register` and before `/change_email`. Rate limited to
+        5/hour.
+
+        Unlike `/forgot_password`, this one **does** report `email_taken` — the
+        address is being claimed, not recovered, so the caller has to be told it
+        is unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: "`email_taken`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /forgot_password:
+    post:
+      tags: [account]
+      summary: Email a password-reset link
+      description: |
+        **Always answers 200**, whether or not the address is registered —
+        otherwise the response would be an account-existence oracle. Rate
+        limited to 5/hour.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /reset_password:
+    post:
+      tags: [account]
+      summary: Set a new password using a reset token
+      description: |
+        The token embeds a fingerprint of the current password, so a link stops
+        working as soon as it is used once — a second attempt with the same link
+        returns `invalid_reset_token`. Rate limited to 10/hour.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token:
+                  type: string
+                  description: From the emailed `?token=` parameter.
+                new_password: { type: string, format: password }
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "400":
+          description: |
+            `invalid_reset_token` when the link is expired or already used;
+            `password_too_short` / `password_too_long` when the new password is
+            rejected.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /change_password:
+    post:
+      tags: [account]
+      summary: Change the password of the signed-in user
+      description: |
+        **Revokes every other session** on success, then re-issues cookies for
+        the calling device so it stays signed in. Rate limited to 20/hour.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_password, new_password]
+              properties:
+                old_password: { type: string, format: password }
+                new_password: { type: string, format: password }
+      responses:
+        "200":
+          description: Changed. Sets fresh session cookies.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        "400":
+          description: "`invalid_old_password`, `password_too_short`, `password_too_long`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /change_email:
+    post:
+      tags: [account]
+      summary: Change the email of the signed-in user
+      description: |
+        Needs the current password **and** a verification code sent to the new
+        address. Rate limited to 10/hour.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_email, code, password]
+              properties:
+                new_email: { type: string, format: email }
+                code: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email: { type: string, format: email }
+        "400":
+          description: "`invalid_password`, `invalid_verification_code`, `email_invalid_format`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: "`email_taken`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /me:
+    get:
+      tags: [account]
+      summary: The signed-in user
+      description: |
+        The client's way to ask "who am I, and is my session still good?" —
+        used on page load to decide between the app and the sign-in screen.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: "`user_not_found` — a valid token for a deleted account."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /u{username}:
+    parameters:
+      - $ref: "#/components/parameters/Username"
+    get:
+      tags: [account]
+      summary: One user by name
+      description: |
+        Scoped to the caller: reading another user's record returns `403`, not
+        `404` — the username was resolvable, so hiding that fact here would be
+        pointless.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/NotYourAccount" }
+        "404": { $ref: "#/components/responses/UserNotFound" }
+    put:
+      tags: [account]
+      summary: Rename the signed-in user
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string, minLength: 3, maxLength: 32 }
+      responses:
+        "200":
+          description: The updated user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400":
+          description: "`username_too_short`, `username_too_long`, `username_empty`, or `update_failed`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/NotYourAccount" }
+        "404": { $ref: "#/components/responses/UserNotFound" }
+        "409":
+          description: "`username_taken`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [account]
+      summary: Delete the signed-in user's account
+      description: |
+        Requires the current password in the body. Categories and ratings cascade
+        with the row. The session cookies are cleared on the way out, so the
+        browser is not left holding tokens for an account that no longer exists.
+        Rate limited to 10/hour.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Deleted. Clears the session cookies.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Message" }
+        "400":
+          description: "`missing_fields` or `invalid_password`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/NotYourAccount" }
+        "404": { $ref: "#/components/responses/UserNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /u{username}/v/c/public:
+    get:
+      tags: [categories]
+      summary: A user's public VN collections
+      description: |
+        The only cross-user read in the service. Any signed-in user may call it
+        for any username, but it exposes exactly two collections — `played` and
+        `playing`, matched case-insensitively — plus that user's VN ratings. No
+        other collection is ever included, whatever the user named it.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The public view.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string }
+                  collections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category_name: { type: string }
+                        marks:
+                          type: array
+                          items: { type: integer }
+                  ratings:
+                    type: object
+                    description: VN id → 1–5 score. Keys are JSON strings.
+                    additionalProperties: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/UserNotFound" }
+
+  /{type}/c:
+    parameters:
+      - $ref: "#/components/parameters/Type"
+    get:
+      tags: [categories]
+      summary: Every category of one type
+      description: |
+        A bare array, not a paginated envelope — a user has a handful of
+        collections, and the client wants all of them at once to render a
+        picker.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The categories.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Category" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [categories]
+      summary: Create a category
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_name]
+              properties:
+                category_name: { type: string }
+      responses:
+        "201":
+          description: The new category.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "400":
+          description: "`category_create_failed` — duplicate name, name too long, or unknown type."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/c{category_id}:
+    parameters:
+      - $ref: "#/components/parameters/Type"
+      - $ref: "#/components/parameters/CategoryId"
+    get:
+      tags: [categories]
+      summary: One category
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The category.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/CategoryNotFound" }
+    put:
+      tags: [categories]
+      summary: Rename a category
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category_name: { type: string }
+      responses:
+        "200":
+          description: The updated category.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/CategoryNotFound" }
+    delete:
+      tags: [categories]
+      summary: Delete a category
+      description: Default categories cannot be deleted; the attempt reports `404`.
+      security:
+        - sessionCookie: []
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/CategoryNotFound" }
+
+  /{type}/c{category_id}/clear:
+    post:
+      tags: [categories]
+      summary: Remove every mark from a category
+      description: Empties the collection; the category itself survives.
+      parameters:
+        - $ref: "#/components/parameters/Type"
+        - $ref: "#/components/parameters/CategoryId"
+      security:
+        - sessionCookie: []
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/CategoryNotFound" }
+
+  /{type}/c{category_id}/m:
+    parameters:
+      - $ref: "#/components/parameters/Type"
+      - $ref: "#/components/parameters/CategoryId"
+    get:
+      tags: [marks]
+      summary: Every mark in a category
+      description: |
+        The whole set at once, for a client that needs to diff against it. Wears
+        the pagination envelope for consistency, but never paginates: `more` is
+        always `false`. Use `/{type}/c/m` for a real paginated read.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Every entity id in the category.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results, count, more]
+                properties:
+                  results:
+                    type: array
+                    items: { type: integer }
+                  count: { type: integer }
+                  more: { type: boolean, const: false }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [marks]
+      summary: Add one or several marks
+      description: |
+        Send `mark_id` for one, or `mark_ids` for a batch. When both are
+        present `mark_ids` wins.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [mark_id]
+                  properties:
+                    mark_id: { type: integer }
+                - type: object
+                  required: [mark_ids]
+                  properties:
+                    mark_ids:
+                      type: array
+                      items: { type: integer }
+      responses:
+        "201":
+          description: The updated category.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "400": { $ref: "#/components/responses/MarkUpdateFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [marks]
+      summary: Remove one or several marks
+      description: Same body shape as the `POST`.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [mark_id]
+                  properties:
+                    mark_id: { type: integer }
+                - type: object
+                  required: [mark_ids]
+                  properties:
+                    mark_ids:
+                      type: array
+                      items: { type: integer }
+      responses:
+        "200":
+          description: The updated category.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "400": { $ref: "#/components/responses/MarkUpdateFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/c{category_id}/m{mark_id}:
+    get:
+      tags: [marks]
+      summary: Is this entity in this category?
+      parameters:
+        - $ref: "#/components/parameters/Type"
+        - $ref: "#/components/parameters/CategoryId"
+        - $ref: "#/components/parameters/MarkId"
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The answer.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containsMark: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/c/m:
+    parameters:
+      - $ref: "#/components/parameters/Type"
+    get:
+      tags: [marks]
+      summary: A page of marks across categories
+      description: |
+        The paginated read behind the collection pages. `cid=all` spans every
+        category of this type.
+      parameters:
+        - name: cid
+          in: query
+          schema: { type: string, default: all }
+          description: A numeric category id, or `all`.
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [id, marked_at], default: marked_at }
+        - name: reverse
+          in: query
+          schema: { type: boolean, default: true }
+        - name: count
+          in: query
+          schema: { type: boolean, default: true }
+          description: "`false` omits the total, skipping a second query."
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results, more]
+                properties:
+                  results:
+                    type: array
+                    items: { type: integer }
+                  count: { type: integer }
+                  more: { type: boolean }
+        "400":
+          description: "`invalid_request` — non-integer paging, or an unknown `sort`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: "`not_found` — no such category."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      tags: [marks]
+      summary: Move marks between categories
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_from_id, category_to_id, mark_ids]
+              properties:
+                category_from_id: { type: integer }
+                category_to_id: { type: integer }
+                mark_ids:
+                  type: array
+                  items: { type: integer }
+      responses:
+        "200":
+          description: Both categories, after the move.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category_from: { $ref: "#/components/schemas/Category" }
+                  category_to: { $ref: "#/components/schemas/Category" }
+        "400":
+          description: |
+            `invalid_request` when source and destination are the same;
+            `mark_update_failed` when either category is unknown.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/m/is_marked:
+    post:
+      tags: [marks]
+      summary: Is this entity in any category?
+      description: |
+        A `POST` despite being a read: the batch sibling below carries a list too
+        long for a query string, and keeping the pair symmetrical costs less than
+        the consistency of a `GET` here.
+      parameters:
+        - $ref: "#/components/parameters/Type"
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mark_id]
+              properties:
+                mark_id: { type: integer }
+      responses:
+        "200":
+          description: The answer.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isMarked: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/m/are_marked:
+    post:
+      tags: [marks]
+      summary: Which of these entities are in any category?
+      description: Answers a whole grid of cards in one round trip.
+      parameters:
+        - $ref: "#/components/parameters/Type"
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mark_ids]
+              properties:
+                mark_ids:
+                  type: array
+                  items: { type: integer }
+      responses:
+        "200":
+          description: Entity id → whether it is marked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  isMarked:
+                    type: object
+                    additionalProperties: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/m{mark_id}/c:
+    get:
+      tags: [marks]
+      summary: Which categories hold this entity?
+      parameters:
+        - $ref: "#/components/parameters/Type"
+        - $ref: "#/components/parameters/MarkId"
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The category ids.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categoryIds:
+                    type: array
+                    items: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/m/c:
+    post:
+      tags: [marks]
+      summary: Which categories hold each of these entities?
+      parameters:
+        - $ref: "#/components/parameters/Type"
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mark_ids]
+              properties:
+                mark_ids:
+                  type: array
+                  items: { type: integer }
+      responses:
+        "200":
+          description: Entity id → the category ids holding it.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categoryIds:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/r:
+    get:
+      tags: [ratings]
+      summary: Every rating of one type
+      description: |
+        The whole map at once, so a grid can show scores without a request per
+        card.
+      parameters:
+        - $ref: "#/components/parameters/Type"
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: |
+            Entity id → 1–5 score. Keys are JSON strings; the client parses them
+            back to numbers.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: { type: integer, minimum: 1, maximum: 5 }
+        "400": { $ref: "#/components/responses/InvalidType" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /{type}/r{mark_id}:
+    parameters:
+      - $ref: "#/components/parameters/Type"
+      - $ref: "#/components/parameters/MarkId"
+    get:
+      tags: [ratings]
+      summary: One rating
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The score, or `0` when unrated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rating:
+                    type: integer
+                    minimum: 0
+                    maximum: 5
+                    description: "`0` means no rating, since 1 is the lowest real score."
+        "400": { $ref: "#/components/responses/InvalidType" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      tags: [ratings]
+      summary: Set a rating
+      description: Creates or overwrites; there is no separate create.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating: { type: integer, minimum: 1, maximum: 5 }
+      responses:
+        "200":
+          description: The stored rating.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rating" }
+        "400":
+          description: "`invalid_rating` when out of range, `rating_update_failed` otherwise."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    delete:
+      tags: [ratings]
+      summary: Remove a rating
+      security:
+        - sessionCookie: []
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "400":
+          description: "`rating_update_failed` — nothing to remove."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: access_token_cookie
+      description: |
+        <a id="sessions"></a>Set by `/login` and `/register`; httpOnly, so page
+        scripts cannot read it. Unsafe methods must also send the value of the
+        `csrf_access_token` cookie in an `X-CSRF-TOKEN` header — a cookie alone
+        would let any other site drive this API from a logged-in browser.
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token_cookie
+      description: |
+        Accepted only by `/refresh` and `/logout`. Its CSRF partner is
+        `csrf_refresh_token`.
+
+  parameters:
+    Type:
+      name: type
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [v, r, c, p, s, g, i]
+      description: |
+        Entity class, using VNDB's own single-letter keys: `v` visual novel,
+        `r` release, `c` character, `p` producer, `s` staff, `g` tag,
+        `i` trait.
+    Username:
+      name: username
+      in: path
+      required: true
+      schema: { type: string }
+      description: |
+        The path is `/u{username}` — the literal `u` is part of the URL, in the
+        same style as VNDB's own `/u123` user pages.
+    CategoryId:
+      name: category_id
+      in: path
+      required: true
+      schema: { type: integer }
+      description: Written `c{id}` in the path, e.g. `/v/c7`.
+    MarkId:
+      name: mark_id
+      in: path
+      required: true
+      schema: { type: integer }
+      description: |
+        A VNDB entity id **without** its letter prefix — `17` for `v17`. The
+        type is already carried by the `{type}` segment.
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        email: { type: string, format: email }
+        is_admin: { type: boolean }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+
+    Category:
+      type: object
+      properties:
+        id: { type: integer }
+        user_id: { type: integer }
+        category_name: { type: string }
+        marks:
+          type: array
+          items: { type: integer }
+          description: Entity ids in this collection.
+        type: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Rating:
+      type: object
+      properties:
+        id: { type: integer }
+        user_id: { type: integer }
+        type: { type: string }
+        mark_id: { type: integer }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        created_at: { type: [string, "null"], format: date-time }
+        updated_at: { type: [string, "null"], format: date-time }
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+          description: For humans. Not stable — never parse it.
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: |
+            Beyond the shared vocabulary in ./README.md, this service defines:
+
+            **Session** — `invalid_token`, `token_expired`, `token_revoked`,
+            `fresh_token_required`, `invalid_credentials` (all 401).
+
+            **Input** — `missing_fields`, `invalid_type`, `invalid_rating`,
+            `invalid_reset_token`, `invalid_verification_code`,
+            `invalid_invitation_code`, `invalid_password`,
+            `invalid_old_password`, `password_too_short`, `password_too_long`,
+            `invalid_username`, `username_empty`, `username_too_short`,
+            `username_too_long`, `invalid_email`, `email_empty`,
+            `email_invalid_format` (400); `username_taken`, `email_taken` (409).
+
+            **Not found** — `user_not_found`, `category_not_found` (404).
+
+            **Write failed** — `update_failed`, `category_create_failed`,
+            `mark_update_failed`, `rating_update_failed` (400);
+            `registration_failed`, `delete_failed`, `password_change_failed`,
+            `email_change_failed`, `password_reset_failed` (500).
+        message:
+          type: string
+          description: For humans. Not stable — never parse it.
+
+  responses:
+    Message:
+      description: Succeeded.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Message" }
+    BadRequest:
+      description: Malformed body or parameters.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: |
+        No session, or one that is no longer valid — `unauthorized`,
+        `invalid_token`, `token_expired`, `token_revoked`. A client should
+        distinguish them only to choose the wording it shows; all four mean
+        sign in again.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: "`rate_limited` — the per-route limit was exceeded."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UserNotFound:
+      description: "`user_not_found`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    CategoryNotFound:
+      description: "`category_not_found`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotYourAccount:
+      description: "`unauthorized` — the record belongs to another user."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InvalidType:
+      description: "`invalid_type` — unknown entity class."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    MarkUpdateFailed:
+      description: "`mark_update_failed` — unknown category, or nothing to change."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

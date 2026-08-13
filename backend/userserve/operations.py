@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from flask import current_app
 
 from userserve import db, redis_client
+from .logger import logger
 from .models import User, CATEGORY_MODEL, CategoryType, Rating
 
 class ValidationError(Exception):
@@ -207,9 +208,9 @@ def save_db_operation(func: Callable) -> Callable:
             # Validation failures are surfaced to the client, not swallowed.
             db.session.rollback()
             raise
-        except Exception as e:
+        except Exception:
             db.session.rollback()
-            print(f"Error in {func.__name__}: {str(e)}")
+            logger.exception(f"{func.__name__} failed")
             return None
     return wrapper
 
@@ -574,11 +575,12 @@ def get_marks_from_category(user_id: int, category_id: int, category_type: str,
     return {'results': results, 'more': more, 'count': total} if count else {'results': results, 'more': more}
 
 @save_db_operation
-def get_marks_from_category_without_pagination(user_id: int, category_id: int, category_type: str) -> List[Dict] | None:
+def get_marks_from_category_without_pagination(user_id: int, category_id: int, category_type: str) -> Dict | None:
+    """Every mark in one category. Keeps the paginated shape so callers can read
+    it the same way as `get_marks_for_user`; `more` is always False."""
     category = get_category(user_id, category_id, category_type)
     if not category:
         raise CategoryNotFoundError
-    # return category.marks
     return {'results': category.marks, 'more': False, 'count': len(category.marks)}
 
 @save_db_operation

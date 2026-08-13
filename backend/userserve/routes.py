@@ -27,17 +27,9 @@ from .mail import send_password_reset_email, send_verification_code_email
 
 api_bp = Blueprint('api', __name__, url_prefix='/')
 
-@api_bp.errorhandler(400)
-def bad_request(e):
-    return jsonify(error=str(e.description)), 400
-
-@api_bp.errorhandler(404)
-def not_found(e):
-    return jsonify(error="Resource not found"), 404
-
-@api_bp.errorhandler(500)
-def server_error(e):
-    return jsonify(error="An unexpected error occurred"), 500
+# 400/404/500 are left to the app-level handler in __init__.py, which puts every
+# HTTPException on the shared {error, message} shape. Only the two cases needing
+# more than the default wording are handled here.
 
 @api_bp.errorhandler(429)
 def ratelimit_exceeded(e):
@@ -52,6 +44,10 @@ def handle_validation_error(e):
 def hello_world():
     return jsonify({"message": "USERSERVE"})
 
+
+# ----------------------------------------
+# Sessions
+# ----------------------------------------
 
 def _issue_token_cookies(response, user):
     """Attach a fresh access + refresh cookie pair (and their CSRF tokens) to a
@@ -154,6 +150,10 @@ def verify():
     response.headers['X-User-Id'] = str(get_jwt_identity())
     return response
 
+# ----------------------------------------
+# Accounts
+# ----------------------------------------
+
 @api_bp.route('/me', methods=['GET'])
 @jwt_required()
 def me():
@@ -169,9 +169,9 @@ def get_user_route(username):
     current_user_id = get_jwt_identity()
     user = get_user_by_username(username)
     if not user:
-        return jsonify(error="User not found"), 404
+        return jsonify(error="user_not_found", message="User not found."), 404
     if current_user_id != user.id:
-        return jsonify(error="Unauthorized"), 403
+        return jsonify(error="unauthorized", message="You can only access your own account."), 403
     return jsonify(dict(user)), 200
 
 @api_bp.route('/u<username>', methods=['PUT'])
@@ -180,13 +180,13 @@ def update_user_route(username):
     current_user_id = get_jwt_identity()
     user = get_user_by_username(username)
     if not user:
-        return jsonify(error="User not found"), 404
+        return jsonify(error="user_not_found", message="User not found."), 404
     if current_user_id != user.id:
-        return jsonify(error="Unauthorized"), 403
+        return jsonify(error="unauthorized", message="You can only modify your own account."), 403
     data = request.json
     user = update_user(user.id, username=data.get('username'))
     if not user:
-        return jsonify(error="Update failed"), 400
+        return jsonify(error="update_failed", message="Could not update the profile."), 400
     return jsonify(dict(user)), 200
 
 @api_bp.route('/u<username>', methods=['DELETE'])
@@ -303,6 +303,10 @@ def reset_password_route():
     return jsonify(message="Your password has been reset. Please log in with your new password."), 200
 
 
+# ----------------------------------------
+# Categories — named collections of entities
+# ----------------------------------------
+
 @api_bp.route('/u<username>/v/c/public', methods=['GET'])
 @jwt_required()
 def get_public_vn_collections_route(username):
@@ -311,7 +315,7 @@ def get_public_vn_collections_route(username):
     authenticated user may read these two collections for any user."""
     data = get_public_vn_collections(username)
     if data is None:
-        return jsonify(error="User not found"), 404
+        return jsonify(error="user_not_found", message="User not found."), 404
     return jsonify(data), 200
 
 @api_bp.route('/<string:type>/c', methods=['GET'])
@@ -330,7 +334,7 @@ def create_category_route(type):
     category = create_category(user_id, type, data['category_name'])
     if category:
         return jsonify(dict(category)), 201
-    return jsonify(error="Failed to create category"), 400
+    return jsonify(error="category_create_failed", message="Could not create the category."), 400
 
 @api_bp.route('/<string:type>/c<int:category_id>', methods=['GET'])
 @jwt_required()
@@ -339,7 +343,7 @@ def get_category_route(type, category_id):
     category = get_category(user_id, category_id, type)
     if category:
         return jsonify(dict(category)), 200
-    return jsonify(error="Category not found"), 404
+    return jsonify(error="category_not_found", message="No such category."), 404
 
 @api_bp.route('/<string:type>/c<int:category_id>', methods=['PUT'])
 @jwt_required()
@@ -349,7 +353,7 @@ def update_category_route(type, category_id):
     category = update_category(user_id, category_id, type, data.get('category_name'))
     if category:
         return jsonify(dict(category)), 200
-    return jsonify(error="Category not found"), 404
+    return jsonify(error="category_not_found", message="No such category."), 404
 
 @api_bp.route('/<string:type>/c<int:category_id>', methods=['DELETE'])
 @jwt_required()
@@ -357,7 +361,7 @@ def delete_category_route(type, category_id):
     user_id = get_jwt_identity()
     if delete_category(user_id, category_id, type):
         return jsonify(message="Category deleted"), 200
-    return jsonify(error="Category not found"), 404
+    return jsonify(error="category_not_found", message="No such category."), 404
 
 @api_bp.route('/<string:type>/c<int:category_id>/clear', methods=['POST'])
 @jwt_required()
@@ -366,8 +370,12 @@ def clear_category_route(type, category_id):
     category = clear_category(user_id, category_id, type)
     if category:
         return jsonify(message="Category cleared"), 200
-    return jsonify(error="Category not found"), 404
+    return jsonify(error="category_not_found", message="No such category."), 404
 
+
+# ----------------------------------------
+# Marks — entities inside a collection
+# ----------------------------------------
 
 @api_bp.route('/<string:type>/c<int:category_id>/m<int:mark_id>', methods=['GET'])
 @jwt_required()
@@ -387,7 +395,7 @@ def add_mark_to_category_route(type, category_id):
         category = add_mark_to_category(user_id, category_id, type, data['mark_id'])
     if category:
         return jsonify(dict(category)), 201
-    return jsonify(error="Failed to add mark"), 400
+    return jsonify(error="mark_update_failed", message="Could not add the mark to this category."), 400
 
 @api_bp.route('/<string:type>/c<int:category_id>/m', methods=['DELETE'])
 @jwt_required()
@@ -400,7 +408,7 @@ def remove_mark_from_category_route(type, category_id):
         category = remove_mark_from_category(user_id, category_id, type, data['mark_id'])
     if category:
         return jsonify(dict(category)), 200
-    return jsonify(error="Failed to remove mark"), 400
+    return jsonify(error="mark_update_failed", message="Could not remove the mark from this category."), 400
 
 @api_bp.route('/<string:type>/c<int:category_id>/m', methods=['GET'])
 @jwt_required()
@@ -421,9 +429,9 @@ def get_marks_for_user_route(type):
         limit = max(1, min(int(args.get('limit', 24)), 100))
         category_id = None if cid_raw == 'all' else int(cid_raw)
     except (TypeError, ValueError):
-        return jsonify(error="Invalid pagination or cid"), 400
+        return jsonify(error="invalid_request", message="page, limit and cid must be integers."), 400
     if sort not in ('id', 'marked_at'):
-        return jsonify(error="Invalid sort field"), 400
+        return jsonify(error="invalid_request", message="sort must be one of: id, marked_at."), 400
 
     reverse = args.get('reverse', 'true').lower() == 'true'
     count = args.get('count', 'true').lower() == 'true'
@@ -432,7 +440,7 @@ def get_marks_for_user_route(type):
         page=page, limit=limit, sort=sort, reverse=reverse, count=count,
     )
     if result is None:
-        return jsonify(error="Not found"), 404
+        return jsonify(error="not_found", message="No such category."), 404
     return jsonify(result), 200
 
 @api_bp.route('/<string:type>/c/m', methods=['PUT'])
@@ -443,11 +451,11 @@ def move_marks_to_category_route(type):
     category_from_id = data['category_from_id']
     category_to_id = data['category_to_id']
     if category_from_id == category_to_id:
-        return jsonify(error="Category from and to are the same"), 400
+        return jsonify(error="invalid_request", message="Source and destination categories are the same."), 400
     category_from, category_to = move_marks_to_category(user_id, category_from_id, category_to_id, type, data['mark_ids'])
     if category_from and category_to:
         return jsonify({'category_from': dict(category_from), 'category_to': dict(category_to)}), 200
-    return jsonify(error="Failed to move marks"), 400
+    return jsonify(error="mark_update_failed", message="Could not move the marks."), 400
 
 
 @api_bp.route('/<string:type>/m/is_marked', methods=['POST'])
@@ -487,13 +495,17 @@ def get_categories_by_marks_route(type):
     return jsonify(categoryIds=categoryIds), 200
 
 
+# ----------------------------------------
+# Ratings
+# ----------------------------------------
+
 @api_bp.route('/<string:type>/r', methods=['GET'])
 @jwt_required()
 def get_ratings_for_user_route(type):
     user_id = get_jwt_identity()
     ratings = get_ratings_for_user(user_id, type)
     if ratings is None:
-        return jsonify(error="Invalid type"), 400
+        return jsonify(error="invalid_type", message="Unknown collection type."), 400
     # JSON object keys are serialised as strings; the frontend parses them back.
     return jsonify(ratings), 200
 
@@ -503,7 +515,7 @@ def get_rating_route(type, mark_id):
     user_id = get_jwt_identity()
     rating = get_rating(user_id, type, mark_id)
     if rating is None:
-        return jsonify(error="Invalid type"), 400
+        return jsonify(error="invalid_type", message="Unknown collection type."), 400
     return jsonify(rating=rating), 200
 
 @api_bp.route('/<string:type>/r<int:mark_id>', methods=['PUT'])
@@ -516,7 +528,7 @@ def set_rating_route(type, mark_id):
     rating = set_rating(user_id, type, mark_id, data.get('rating'))
     if rating:
         return jsonify(dict(rating)), 200
-    return jsonify(error="Failed to set rating"), 400
+    return jsonify(error="rating_update_failed", message="Could not set the rating."), 400
 
 @api_bp.route('/<string:type>/r<int:mark_id>', methods=['DELETE'])
 @jwt_required()
@@ -524,4 +536,4 @@ def delete_rating_route(type, mark_id):
     user_id = get_jwt_identity()
     if delete_rating(user_id, type, mark_id):
         return jsonify(message="Rating removed"), 200
-    return jsonify(error="Failed to remove rating"), 400
+    return jsonify(error="rating_update_failed", message="Could not remove the rating."), 400

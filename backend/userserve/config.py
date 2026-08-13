@@ -80,7 +80,6 @@ class Config:
 
     # Scheduler configuration
     SCHEDULER_API_ENABLED = True
-    # SCHEDULER_TIMEZONE = "UTC"
 
     # Data folder configuration
     DATA_FOLDER = os.environ['DATA_FOLDER']

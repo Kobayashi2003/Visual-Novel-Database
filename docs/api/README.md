@@ -8,7 +8,7 @@ This directory holds one OpenAPI 3.1 document per service.
 | transserve | `/transserve` | [transserve.yaml](transserve.yaml) | ✅ normalized |
 | musicserve | `/musicserve` | [musicserve.yaml](musicserve.yaml) | ✅ normalized |
 | imgserve | `/imgserve` | [imgserve.yaml](imgserve.yaml) | ✅ normalized |
-| userserve | `/userserve` | — | pending |
+| userserve | `/userserve` | [userserve.yaml](userserve.yaml) | ✅ normalized |
 | vndb | `/vndb` | — | pending |
 
 > The API is documented well enough to integrate against without reading the
