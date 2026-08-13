@@ -96,6 +96,3 @@ def handle_query(query):
         # both: stale-while-revalidate detail lookup (vndb/search/both)
         return execute_task(query_resources_task,
             True, resource_type, {'id': query}, response_size, 1, 1, 'id', False, True)
-
-    else:
-        abort(400, description="Invalid query")

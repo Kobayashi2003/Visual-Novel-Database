@@ -25,19 +25,25 @@ def db_transaction(func):
     return wrapper
 
 
+def _order_by(model, sort: str, reverse: bool):
+    if sort not in {c.name for c in model.__table__.columns}:
+        raise ValueError(f"Invalid sort column: {sort}")
+    return (desc if reverse else asc)(getattr(model, sort))
+
+
 def exists(type: str, id: str) -> bool:
     id = formatId(type, id)
     model = MODEL_MAP[type]
-    item = db.session.query(model).get(id)
+    item = db.session.get(model, id)
     return item is not None and item.deleted_at is None
 
 def count_all(type: str) -> int:
     model = MODEL_MAP[type]
-    return db.session.query(model).filter(model.deleted_at == None).count()
+    return db.session.query(model).filter(model.deleted_at.is_(None)).count()
 
 def count_inactive_all(type: str) -> int:
     model = MODEL_MAP[type]
-    return db.session.query(model).filter(model.deleted_at != None).count()
+    return db.session.query(model).filter(model.deleted_at.is_not(None)).count()
 
 def updatable(type: str, id: str, update_interval: timedelta = timedelta(minutes=10)) -> bool:
     """Whether a background (automatic) crawl may overwrite this row.
@@ -49,11 +55,11 @@ def updatable(type: str, id: str, update_interval: timedelta = timedelta(minutes
     remote API), not updated_at, which any write (including edits) bumps.
     """
     id = formatId(type, id)
+    # `get` filters soft-deleted rows, so a missing item covers both
+    # "never existed" and "deleted" — both are free to be written.
     item = get(type, id)
     if not item:
-        return True  # Allow update if item doesn't exist (it will be created)
-    if item.deleted_at is not None:
-        return True  # Allow update if item is deleted
+        return True
     if item.edited_at is not None:
         return False  # Never auto-overwrite manual edits
     last_crawl = item.crawled_at or item.updated_at
@@ -68,16 +74,15 @@ def get(type: str, id: str) -> ModelType | None:
     item = (
         db.session.query(model)
         .filter(model.id == id)
-        .filter(model.deleted_at == None)
+        .filter(model.deleted_at.is_(None))
         .first()
     )
     return item
 
 def get_all(type: str, page: int | None = None, limit: int | None = None, sort: str = 'id', reverse: bool = False) -> list[ModelType]:
     model = MODEL_MAP[type]
-    query = db.session.query(model).filter(model.deleted_at == None)
-    order_func = desc if reverse else asc
-    query = query.order_by(order_func(getattr(model, sort)))
+    query = db.session.query(model).filter(model.deleted_at.is_(None))
+    query = query.order_by(_order_by(model, sort, reverse))
     if page and limit:
         page = max(1, page)
         limit = min(max(1, limit), 100)
@@ -97,7 +102,7 @@ PROTECTED_COLUMNS = {'id', 'created_at', 'updated_at', 'crawled_at', 'edited_at'
 def create(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl') -> ModelType | None:
     id = formatId(type, id)
     model = MODEL_MAP[type]
-    data.pop('id', None)
+    data = {k: v for k, v in data.items() if k != 'id'}
     if exists(type, id):
         return None
     # Use cleanup to ensure deletion of any existing inactive items
@@ -146,7 +151,7 @@ def delete_all(type: str) -> int:
     current_time = datetime.now(timezone.utc)
     count = (
         db.session.query(model)
-        .filter(model.deleted_at == None)
+        .filter(model.deleted_at.is_(None))
         .update({model.deleted_at: current_time})
     )
     db.session.flush()
@@ -159,16 +164,15 @@ def get_inactive(type: str, id: str) -> ModelType | None:
     item = (
         db.session.query(model)
         .filter(model.id == id)
-        .filter(model.deleted_at != None)
+        .filter(model.deleted_at.is_not(None))
         .first()
     )
     return item
 
 def get_inactive_all(type: str, page: int | None = None, limit: int | None = None, sort: str = 'id', reverse: bool = False) -> list[ModelType]:
     model = MODEL_MAP[type]
-    query = db.session.query(model).filter(model.deleted_at != None)
-    order_func = desc if reverse else asc
-    query = query.order_by(order_func(getattr(model, sort)))
+    query = db.session.query(model).filter(model.deleted_at.is_not(None))
+    query = query.order_by(_order_by(model, sort, reverse))
     if page and limit:
         page = max(1, page)
         limit = min(max(1, limit), 100)
@@ -188,7 +192,7 @@ def recover_all(type: str) -> int:
     model = MODEL_MAP[type]
     count = (
         db.session.query(model)
-        .filter(model.deleted_at != None)
+        .filter(model.deleted_at.is_not(None))
         .update({model.deleted_at: None})
     )
     db.session.flush()

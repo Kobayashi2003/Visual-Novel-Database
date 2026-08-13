@@ -1,4 +1,4 @@
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from flask import Blueprint, jsonify, abort, request
 from vndb.utils.ids import formatId
 from vndb.tasks.resources import (
@@ -19,14 +19,7 @@ from vndb.tasks.trash import (
 )
 from .common import execute_task, parse_bool, parse_int
 
-class SingletonABCMeta(ABCMeta):
-    _instances = {}
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super().__call__(*args, **kwargs)
-        return cls._instances[cls]
-
-class BaseResourceBlueprint(ABC, metaclass=SingletonABCMeta):
+class BaseResourceBlueprint(ABC):
     @abstractmethod
     def __init__(self, resource_type, plural_form=None, related_resources=None):
         self.resource_type = resource_type
