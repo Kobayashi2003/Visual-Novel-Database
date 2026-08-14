@@ -1,3 +1,10 @@
+"""The whole service: browse the music folder, stream a track, read its tags.
+
+There is no database. The folder on disk is the library, scanned per request.
+Audio is served with range support so a player can seek without fetching the whole
+file, and cover art is extracted from the tags and cached separately.
+"""
+
 import os
 
 from flask import Blueprint, current_app, jsonify, request, send_file, abort

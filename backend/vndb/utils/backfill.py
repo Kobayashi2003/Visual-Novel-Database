@@ -1,3 +1,13 @@
+"""Populate one column across a whole table, for after a schema change.
+
+A migration adds a column but leaves it empty on existing rows. This walks the
+table in batches and fills that one column — from the local row where the value
+can be derived, or from a fresh Kana API fetch where it cannot. Only the named
+column is written: the rest of the row, including any hand-edit, is left alone.
+
+Driven from POST /admin/backfill, which runs it on a background thread.
+"""
+
 import time
 from enum import Enum, auto
 from typing import Any, Callable

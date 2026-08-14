@@ -1,3 +1,11 @@
+"""`flask transserve` commands: schema, seeding, and the bundled snapshot.
+
+`seed-terms` / `seed-passages` load translations from a file; `export-init`
+writes the current contents back out to data/init.json, which is the snapshot
+the Docker deployment ships so a fresh install starts with a populated term
+base instead of an empty one.
+"""
+
 import os
 import json
 import subprocess

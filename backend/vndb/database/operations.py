@@ -1,3 +1,15 @@
+"""Every read and write against the mirrored tables.
+
+The only layer that touches the session. `@db_transaction` wraps each writer, so
+the functions below are written as if nothing fails: no explicit commit, no
+rollback. A reader returns the row or None; a writer returns the row it wrote.
+
+Rows are soft-deleted (`deleted_at` is set and the row stays), so `get_inactive` /
+`recover` / `cleanup` operate on the trash while the normal reads filter it out.
+`updatable` is the freshness gate that keeps a hand-edited row from being
+overwritten by a crawl.
+"""
+
 from typing import Any
 from datetime import datetime, timezone, timedelta
 from functools import wraps

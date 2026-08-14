@@ -1,3 +1,13 @@
+"""Search against the VNDB Kana API.
+
+Builds the upstream request from the same parameter names the local search
+takes, so a caller can switch source without rewriting its query, and adapts
+the reply to the shared {results, count, more} shape.
+
+Also owns the rate-limit handling: the API throttles by request count, so
+failures are retried with a backoff rather than surfaced immediately.
+"""
+
 import re
 import time
 import httpx

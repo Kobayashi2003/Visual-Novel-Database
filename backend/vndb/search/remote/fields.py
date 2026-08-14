@@ -1,3 +1,11 @@
+"""Which fields to request from the Kana API, per entity type.
+
+The API returns nothing unless asked, so every request names its fields. They are
+grouped as `small` (what a card renders) and `large` (the whole entity), which is
+what the `response_size` parameter selects. `validate_sort` guards the sort key,
+since an unknown one is an upstream error rather than a local one.
+"""
+
 class FieldMeta(type):
 
     def __new__(mcs, name, bases, attrs):
@@ -305,20 +313,8 @@ def validate_sort(search_type: str, sort: str) -> str:
     return sort
 
 def get_remote_fields(search_type: str, response_size: str = 'small') -> list[str]:
-
-    """
-    Get the appropriate fields for a remote VNDB API search based on the search type and response size.
-
-    Args:
-        search_type (str): The type of entity to search for ('vn', 'character', 'tag', 'producer', 'staff', 'trait', or 'release').
-        response_size (str): The desired size of the response ('small' or 'large'). Defaults to 'small'.
-
-    Returns:
-        list[str]: A list of field names to be used in the API request.
-
-    Raises:
-        ValueError: If an invalid search_type is provided.
-    """
+    """The `fields` list to ask the Kana API for. `small` covers what a card
+    needs, `large` the whole entity. Raises ValueError on an unknown type."""
     if response_size not in ['small', 'large']:
         raise ValueError(f"Invalid response_size: {response_size}. Must be 'small' or 'large'.")
 

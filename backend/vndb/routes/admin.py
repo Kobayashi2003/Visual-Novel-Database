@@ -1,3 +1,10 @@
+"""Operator controls. Loopback only: the edge does not expose this prefix.
+
+Two things live here. The query API's data-source mode is held in module state so
+it can be flipped without a restart, and the column backfill runs on a background
+thread because it walks a whole table.
+"""
+
 import threading
 
 from flask import Blueprint, current_app, jsonify, render_template, request

@@ -1,17 +1,20 @@
+"""Cron decorators for the scheduled jobs.
+
+Each wraps APScheduler's `scheduler.task` with a trigger and a job id derived
+from the function name, so a job declares its own schedule at the definition
+site. Importing a module that uses one is what registers the job — see the
+imports in imgserve/__init__.py.
+"""
+
 import os
 from imgserve import scheduler
 from functools import wraps
 
 def crawl_task(minute=0):
-    """Decorator for data-crawl jobs, restricted to an off-peak time window.
-
-    Crawling competes with users for the remote rate limit, so it is confined
-    to the quiet hours given by the CRAWL_HOURS env var (a cron hour
-    expression, e.g. '3-6'), interpreted in SCHEDULER_TIMEZONE. The job still
-    runs once per hour, but only within that window.
-
-    :param minute: Minute of the hour (0-59)
-    """
+    """Restricted to an off-peak window: crawling competes with users for the
+    remote rate limit, so it is confined to the hours in CRAWL_HOURS (a cron
+    hour expression, e.g. '3-6') interpreted in SCHEDULER_TIMEZONE. The job
+    still runs once per hour, but only inside that window."""
     hours = os.environ.get('CRAWL_HOURS', '3-6')
     def decorator(func):
         @wraps(func)

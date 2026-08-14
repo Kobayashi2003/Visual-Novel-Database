@@ -1,3 +1,13 @@
+"""The task layer's shared plumbing: envelope, error handling, caching.
+
+`format_results` wraps a return value in the `{status, results}` envelope that
+lets an outcome survive the trip back from a Celery worker; the route layer turns
+that into a status code (see routes/common). The decorators compose the three
+things every task needs: Celery registration, an error handler that logs the
+traceback instead of leaking it, and optionally a memoized result or a cache flush
+after a write.
+"""
+
 import json
 from typing import Any
 

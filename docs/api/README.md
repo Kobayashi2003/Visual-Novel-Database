@@ -3,6 +3,23 @@
 Five services sit behind one Caddy edge on `:30709`, each on its own path prefix.
 This directory holds one OpenAPI 3.1 document per service.
 
+## Browsing them
+
+Open **`/docs`** on the running stack. `index.html` here renders these specs and
+can send requests to the live services — it is served from this directory, so it
+always shows the checked-in version, with nothing to rebuild after an edit.
+
+It sits behind the same `forward_auth` gate as everything else, which is what
+makes "try it" real: the request carries your session, and a route outside a
+prefix's allowlist answers `403` exactly as it would for the frontend.
+
+> The gate is on the *whole* directory, so after the access token expires
+> (30 minutes) a direct visit to `/docs` returns a raw `401` with no way to
+> re-authenticate from that URL. Load the site once to refresh, then reopen.
+
+`js-yaml.min.js` is vendored (MIT, see `js-yaml.LICENSE`) rather than pulled from
+a CDN — the same reason this project mirrors images instead of hotlinking them.
+
 | Service | Prefix | Spec | Status |
 | --- | --- | --- | --- |
 | transserve | `/transserve` | [transserve.yaml](transserve.yaml) | ✅ normalized |

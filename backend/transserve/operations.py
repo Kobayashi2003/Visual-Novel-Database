@@ -1,3 +1,14 @@
+"""The term base and passage memory: every database operation.
+
+Term and passage are peers, and every operation exists for both. They differ
+only in how a row is addressed: a term is short enough to be its own key, while
+a passage is not, so it is keyed by `passage_hash` of its normalised text. That
+hash is an opaque handle — callers pass it back, never compute it.
+
+`normalize_key` is what makes a lookup insensitive to the whitespace and case
+differences that would otherwise split one entry into several.
+"""
+
 import hashlib
 import re
 from typing import Any, Iterable

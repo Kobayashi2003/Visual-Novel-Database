@@ -1,3 +1,9 @@
+"""Scheduled jobs: currently the nightly database backup.
+
+The cron decorators are defined here rather than in a common module, since
+userserve has no schedule package of its own.
+"""
+
 import os
 import subprocess
 from functools import wraps

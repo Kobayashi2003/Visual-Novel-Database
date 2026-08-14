@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1420" viewBox="0 0 1680 1420" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="1442" viewBox="0 0 1680 1442" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#6B7280"/>
@@ -20,7 +20,7 @@
     </marker>
   </defs>
 
-  <rect width="1680" height="1420" fill="#FFFFFF"/>
+  <rect width="1680" height="1442" fill="#FFFFFF"/>
 
   <!-- ============ title ============ -->
   <text x="60" y="48" font-size="27" font-weight="700" fill="#111827">Visual Novel Database — Architecture</text>
@@ -31,211 +31,208 @@
   <text x="76" y="130" font-size="15" font-weight="700" fill="#1E3A8A">Browser</text>
   <text x="76" y="151" font-size="11.5" fill="#1E40AF">httpOnly JWT cookies ride along</text>
 
-  <line x1="195" y1="166" x2="195" y2="204" stroke="#1D4ED8" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
-  <text x="205" y="192" font-size="11.5" fill="#1D4ED8">https :30709</text>
-
   <!-- ============ caddy ============ -->
   <rect x="60" y="210" width="1560" height="122" rx="8" fill="#FEF3C7" stroke="#B45309" stroke-width="2.5"/>
   <text x="78" y="238" font-size="18" font-weight="700" fill="#78350F">Caddy · :30709</text>
   <text x="78" y="262" font-size="11.5" fill="#78350F">The only public ingress. Routes by path prefix, and each backend prefix exposes an explicit allowlist of the routes the frontend actually uses.</text>
   <text x="78" y="282" font-size="11.5" fill="#78350F">Allowlisted requests are first probed with <tspan font-weight="700">forward_auth</tspan> against userserve <tspan font-family="Consolas, monospace">/auth/verify</tspan> (204 = pass, 401 = reject). Anything off the list is answered 403 and never forwarded —</text>
-  <text x="78" y="302" font-size="11.5" fill="#78350F">so <tspan font-family="Consolas, monospace">/vndb/admin</tspan>, the write routes and <tspan font-family="Consolas, monospace">/tasks/*</tspan> stay reachable only on the loopback ports.</text>
+  <text x="78" y="302" font-size="11.5" fill="#78350F">so <tspan font-family="Consolas, monospace">/vndb/admin</tspan>, the write routes and <tspan font-family="Consolas, monospace">/tasks/*</tspan> stay reachable only on the loopback ports. <tspan font-family="Consolas, monospace">/docs</tspan> serves the API specs, gated the same way.</text>
   <text x="78" y="322" font-size="11.5" fill="#78350F">An imgserve cache hit is served straight off disk by <tspan font-weight="700">file_server</tspan> — Flask never runs.</text>
 
   <!-- ============ WEB TIER ============ -->
-  <rect x="60" y="380" width="1560" height="252" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <!-- Notes sit above the boxes so the space below them stays clear for the
+       connections leaving the tier. -->
+  <rect x="60" y="380" width="1560" height="264" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
   <text x="76" y="402" font-size="13" font-weight="700" fill="#374151">WEB TIER</text>
 
+  <text x="80" y="424" font-size="11.5" fill="#6B7280">Each Flask app runs under its own <tspan font-weight="700">Waitress</tspan> thread pool (WAITRESS_THREADS, default 4; userserve 16). All bind loopback only — the edge is the only way in.</text>
+  <text x="80" y="444" font-size="11.5" fill="#6B7280"><tspan font-weight="700">APScheduler</tspan> runs <tspan font-style="italic">inside</tspan> the Waitress process — backups, the VNDB crawl jobs, the access-log flush. Celery workers start with <tspan font-family="Consolas, monospace">enable_scheduler=False</tspan>, so a job never fires twice.</text>
+  <text x="80" y="464" font-size="11.5" fill="#6B7280">Five services have a prefix at the edge. logserve does not, and stays reachable on loopback only.</text>
+  <text x="80" y="484" font-size="11.5" fill="#6B7280">Services import nothing from one another — no shared package, deliberately. They talk over HTTP through the edge, or not at all.</text>
+
   <!-- next -->
-  <rect x="68" y="416" width="204" height="106" rx="8" fill="#E0E7FF" stroke="#4338CA" stroke-width="2"/>
-  <text x="82" y="440" font-size="13.5" font-weight="700" fill="#312E81">Next.js · :5010</text>
-  <text x="82" y="461" font-size="11" fill="#3730A3">standalone build</text>
-  <text x="82" y="478" font-size="11" fill="#3730A3">basePath /visual-novel-database</text>
-  <text x="82" y="502" font-size="11" font-style="italic" fill="#6366F1">node — not Waitress</text>
+  <rect x="68" y="504" width="204" height="106" rx="8" fill="#E0E7FF" stroke="#4338CA" stroke-width="2"/>
+  <text x="82" y="528" font-size="13.5" font-weight="700" fill="#312E81">Next.js · :5010</text>
+  <text x="82" y="549" font-size="11" fill="#3730A3">standalone build</text>
+  <text x="82" y="566" font-size="11" fill="#3730A3">basePath /visual-novel-database</text>
+  <text x="82" y="590" font-size="11" font-style="italic" fill="#6366F1">node — not Waitress</text>
 
   <!-- vndb -->
-  <rect x="292" y="416" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
-  <text x="306" y="440" font-size="13.5" font-weight="700" fill="#14532D">vndb · :5000</text>
-  <text x="306" y="461" font-size="11" fill="#166534">VNDB mirror, search,</text>
-  <text x="306" y="478" font-size="11" fill="#166534">crawl &amp; hand-edit</text>
-  <text x="306" y="502" font-size="11" font-style="italic" fill="#15803D">Waitress · Celery · APScheduler</text>
+  <rect x="292" y="504" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
+  <text x="306" y="528" font-size="13.5" font-weight="700" fill="#14532D">vndb · :5000</text>
+  <text x="306" y="549" font-size="11" fill="#166534">VNDB mirror, search,</text>
+  <text x="306" y="566" font-size="11" fill="#166534">crawl &amp; hand-edit</text>
+  <text x="306" y="590" font-size="11" font-style="italic" fill="#15803D">Waitress · Celery · APScheduler</text>
 
   <!-- imgserve -->
-  <rect x="516" y="416" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
-  <text x="530" y="440" font-size="13.5" font-weight="700" fill="#14532D">imgserve · :5001</text>
-  <text x="530" y="461" font-size="11" fill="#166534">image mirror,</text>
-  <text x="530" y="478" font-size="11" fill="#166534">single-flight cold fetch</text>
-  <text x="530" y="502" font-size="11" font-style="italic" fill="#15803D">Waitress · Celery · APScheduler</text>
+  <rect x="516" y="504" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
+  <text x="530" y="528" font-size="13.5" font-weight="700" fill="#14532D">imgserve · :5001</text>
+  <text x="530" y="549" font-size="11" fill="#166534">image mirror,</text>
+  <text x="530" y="566" font-size="11" fill="#166534">single-flight cold fetch</text>
+  <text x="530" y="590" font-size="11" font-style="italic" fill="#15803D">Waitress · Celery · APScheduler</text>
 
   <!-- userserve -->
-  <rect x="740" y="416" width="204" height="106" rx="8" fill="#FCE7F3" stroke="#BE185D" stroke-width="2.5"/>
-  <text x="754" y="440" font-size="13.5" font-weight="700" fill="#831843">userserve · :5002</text>
-  <text x="754" y="461" font-size="11" fill="#9D174D">accounts, sessions,</text>
-  <text x="754" y="478" font-size="11" fill="#9D174D">collections &amp; ratings</text>
-  <text x="754" y="502" font-size="11" font-style="italic" fill="#BE185D">Waitress · APScheduler</text>
+  <rect x="740" y="504" width="204" height="106" rx="8" fill="#FCE7F3" stroke="#BE185D" stroke-width="2.5"/>
+  <text x="754" y="528" font-size="13.5" font-weight="700" fill="#831843">userserve · :5002</text>
+  <text x="754" y="549" font-size="11" fill="#9D174D">accounts, sessions,</text>
+  <text x="754" y="566" font-size="11" fill="#9D174D">collections &amp; ratings</text>
+  <text x="754" y="590" font-size="11" font-style="italic" fill="#BE185D">Waitress · APScheduler</text>
 
   <!-- transserve -->
-  <rect x="964" y="416" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
-  <text x="978" y="440" font-size="13.5" font-weight="700" fill="#14532D">transserve · :5003</text>
-  <text x="978" y="461" font-size="11" fill="#166534">term base &amp;</text>
-  <text x="978" y="478" font-size="11" fill="#166534">passage memory</text>
-  <text x="978" y="502" font-size="11" font-style="italic" fill="#15803D">Waitress · APScheduler</text>
+  <rect x="964" y="504" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
+  <text x="978" y="528" font-size="13.5" font-weight="700" fill="#14532D">transserve · :5003</text>
+  <text x="978" y="549" font-size="11" fill="#166534">term base &amp;</text>
+  <text x="978" y="566" font-size="11" fill="#166534">passage memory</text>
+  <text x="978" y="590" font-size="11" font-style="italic" fill="#15803D">Waitress · APScheduler</text>
 
   <!-- musicserve -->
-  <rect x="1188" y="416" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
-  <text x="1202" y="440" font-size="13.5" font-weight="700" fill="#14532D">musicserve · :5004</text>
-  <text x="1202" y="461" font-size="11" fill="#166534">audio library,</text>
-  <text x="1202" y="478" font-size="11" fill="#166534">range-request streaming</text>
-  <text x="1202" y="502" font-size="11" font-style="italic" fill="#15803D">Waitress — no database</text>
+  <rect x="1188" y="504" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
+  <text x="1202" y="528" font-size="13.5" font-weight="700" fill="#14532D">musicserve · :5004</text>
+  <text x="1202" y="549" font-size="11" fill="#166534">audio library,</text>
+  <text x="1202" y="566" font-size="11" fill="#166534">range-request streaming</text>
+  <text x="1202" y="590" font-size="11" font-style="italic" fill="#15803D">Waitress — no database</text>
 
   <!-- logserve -->
-  <rect x="1412" y="416" width="200" height="106" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <text x="1426" y="440" font-size="13.5" font-weight="700" fill="#374151">logserve · :5005</text>
-  <text x="1426" y="461" font-size="11" fill="#4B5563">dev log viewer</text>
-  <text x="1426" y="478" font-size="11" font-weight="700" fill="#B91C1C">no Caddy route</text>
-  <text x="1426" y="502" font-size="11" font-style="italic" fill="#6B7280">reads the vndb database</text>
-
-  <text x="80" y="556" font-size="11.5" fill="#6B7280">Each Flask app runs under its own <tspan font-weight="700">Waitress</tspan> thread pool (WAITRESS_THREADS, default 4; userserve 16). All bind loopback only — the edge is the only way in.</text>
-  <text x="80" y="578" font-size="11.5" fill="#6B7280"><tspan font-weight="700">APScheduler</tspan> runs <tspan font-style="italic">inside</tspan> the Waitress process — backups, the VNDB crawl jobs, the access-log flush. Celery workers start with <tspan font-family="Consolas, monospace">enable_scheduler=False</tspan>, so a job never fires twice.</text>
-  <text x="80" y="600" font-size="11.5" fill="#6B7280">Five services have a prefix at the edge. logserve does not, and stays reachable on loopback only.</text>
-  <text x="80" y="622" font-size="11.5" fill="#6B7280">Services import nothing from one another — no shared package, deliberately. They talk over HTTP through the edge, or not at all.</text>
+  <rect x="1412" y="504" width="200" height="106" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="1426" y="528" font-size="13.5" font-weight="700" fill="#374151">logserve · :5005</text>
+  <text x="1426" y="549" font-size="11" fill="#4B5563">dev log viewer</text>
+  <text x="1426" y="566" font-size="11" font-weight="700" fill="#B91C1C">no Caddy route</text>
+  <text x="1426" y="590" font-size="11" font-style="italic" fill="#6B7280">reads the vndb database</text>
 
   <!-- ============ WORKER TIER ============ -->
-  <rect x="60" y="678" width="760" height="184" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <text x="76" y="700" font-size="13" font-weight="700" fill="#374151">WORKER TIER</text>
-  <text x="184" y="700" font-size="11.5" fill="#6B7280">— separate processes; only vndb and imgserve have one</text>
+  <rect x="60" y="690" width="760" height="184" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="76" y="712" font-size="13" font-weight="700" fill="#374151">WORKER TIER</text>
+  <text x="184" y="712" font-size="11.5" fill="#6B7280">— separate processes; only vndb and imgserve have one</text>
 
-  <rect x="78" y="716" width="352" height="128" rx="8" fill="#FEF9C3" stroke="#A16207" stroke-width="2"/>
-  <text x="92" y="740" font-size="13.5" font-weight="700" fill="#713F12">vndb Celery worker</text>
-  <text x="92" y="762" font-size="11" fill="#854D0E">pool=threads, concurrency = CPU count</text>
-  <text x="92" y="780" font-size="11" fill="#854D0E">crawl · refresh · bulk edit · relation graph</text>
-  <text x="92" y="806" font-size="11" fill="#854D0E">reached with <tspan font-family="Consolas, monospace">?sync=false</tspan> →</text>
-  <text x="92" y="824" font-size="11" fill="#854D0E">202 + <tspan font-family="Consolas, monospace">task_id</tspan>, polled at <tspan font-family="Consolas, monospace">/tasks/&lt;id&gt;</tspan></text>
+  <rect x="78" y="728" width="352" height="128" rx="8" fill="#FEF9C3" stroke="#A16207" stroke-width="2"/>
+  <text x="92" y="752" font-size="13.5" font-weight="700" fill="#713F12">vndb Celery worker</text>
+  <text x="92" y="774" font-size="11" fill="#854D0E">pool=threads, concurrency = CPU count</text>
+  <text x="92" y="792" font-size="11" fill="#854D0E">crawl · refresh · bulk edit · relation graph</text>
+  <text x="92" y="818" font-size="11" fill="#854D0E">reached with <tspan font-family="Consolas, monospace">?sync=false</tspan> →</text>
+  <text x="92" y="836" font-size="11" fill="#854D0E">202 + <tspan font-family="Consolas, monospace">task_id</tspan>, polled at <tspan font-family="Consolas, monospace">/tasks/&lt;id&gt;</tspan></text>
 
-  <rect x="450" y="716" width="352" height="128" rx="8" fill="#FEF9C3" stroke="#A16207" stroke-width="2"/>
-  <text x="464" y="740" font-size="13.5" font-weight="700" fill="#713F12">imgserve Celery worker</text>
-  <text x="464" y="762" font-size="11" fill="#854D0E">pool=threads, concurrency = CPU count</text>
-  <text x="464" y="780" font-size="11" fill="#854D0E">mirror · refetch · delete</text>
-  <text x="464" y="806" font-size="11" fill="#854D0E">also the sibling prefetch: asking for one</text>
-  <text x="464" y="824" font-size="11" fill="#854D0E">variant queues the other (full-size ⇄ .t)</text>
+  <rect x="450" y="728" width="352" height="128" rx="8" fill="#FEF9C3" stroke="#A16207" stroke-width="2"/>
+  <text x="464" y="752" font-size="13.5" font-weight="700" fill="#713F12">imgserve Celery worker</text>
+  <text x="464" y="774" font-size="11" fill="#854D0E">pool=threads, concurrency = CPU count</text>
+  <text x="464" y="792" font-size="11" fill="#854D0E">mirror · refetch · delete</text>
+  <text x="464" y="818" font-size="11" fill="#854D0E">also the sibling prefetch: asking for one</text>
+  <text x="464" y="836" font-size="11" fill="#854D0E">variant queues the other (full-size ⇄ .t)</text>
 
   <!-- ============ UPSTREAM ============ -->
-  <rect x="860" y="678" width="760" height="184" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <text x="876" y="700" font-size="13" font-weight="700" fill="#374151">UPSTREAM</text>
-  <text x="972" y="700" font-size="11.5" fill="#6B7280">— the only outbound traffic</text>
+  <rect x="860" y="690" width="760" height="184" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="876" y="712" font-size="13" font-weight="700" fill="#374151">UPSTREAM</text>
+  <text x="972" y="712" font-size="11.5" fill="#6B7280">— the only outbound traffic</text>
 
-  <rect x="878" y="716" width="238" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
-  <text x="892" y="740" font-size="13" font-weight="700" fill="#374151">api.vndb.org/kana</text>
-  <text x="892" y="759" font-size="11" fill="#4B5563">entity data — the mirror's source</text>
+  <rect x="878" y="728" width="238" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
+  <text x="892" y="752" font-size="13" font-weight="700" fill="#374151">api.vndb.org/kana</text>
+  <text x="892" y="771" font-size="11" fill="#4B5563">entity data — fetched by vndb</text>
 
-  <rect x="1136" y="716" width="238" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
-  <text x="1150" y="740" font-size="13" font-weight="700" fill="#374151">t.vndb.org</text>
-  <text x="1150" y="759" font-size="11" fill="#4B5563">covers · screenshots · portraits</text>
+  <rect x="1136" y="728" width="238" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
+  <text x="1150" y="752" font-size="13" font-weight="700" fill="#374151">t.vndb.org</text>
+  <text x="1150" y="771" font-size="11" fill="#4B5563">images — fetched by imgserve</text>
 
-  <rect x="1394" y="716" width="208" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
-  <text x="1408" y="740" font-size="13" font-weight="700" fill="#374151">SMTP</text>
-  <text x="1408" y="759" font-size="11" fill="#4B5563">verification &amp; reset mail</text>
+  <rect x="1394" y="728" width="208" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
+  <text x="1408" y="752" font-size="13" font-weight="700" fill="#374151">SMTP</text>
+  <text x="1408" y="771" font-size="11" fill="#4B5563">mail — sent by userserve</text>
 
-  <text x="878" y="806" font-size="11.5" fill="#6B7280">The crawl schedules walk the Kana API's own listing — newest-first for new</text>
-  <text x="878" y="824" font-size="11.5" fill="#6B7280">entries, plus a cursored sweep that backfills historical gaps a page at a time.</text>
-  <text x="878" y="842" font-size="11.5" fill="#6B7280">Stale entries refresh on demand: a stale read is served immediately and re-fetched behind the request.</text>
+  <text x="878" y="812" font-size="11.5" fill="#6B7280">The crawl schedules walk the Kana API's own listing — newest-first for new entries, plus a cursored</text>
+  <text x="878" y="830" font-size="11.5" fill="#6B7280">sweep that backfills historical gaps a page at a time.</text>
+  <text x="878" y="852" font-size="11.5" fill="#6B7280">Stale entries refresh on demand: a stale read is served immediately and re-fetched behind the request.</text>
 
   <!-- ============ STORES ============ -->
-  <rect x="60" y="910" width="1560" height="300" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
-  <text x="76" y="932" font-size="13" font-weight="700" fill="#374151">STORES</text>
+  <rect x="60" y="920" width="1560" height="300" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="76" y="942" font-size="13" font-weight="700" fill="#374151">STORES</text>
 
   <!-- postgres -->
-  <rect x="78" y="948" width="486" height="244" rx="8" fill="#DBEAFE" stroke="#1D4ED8" stroke-width="2"/>
-  <text x="94" y="974" font-size="15" font-weight="700" fill="#1E3A8A">PostgreSQL · :5432</text>
-  <text x="94" y="997" font-size="11.5" fill="#1E40AF">Runs as a Windows service — the launcher never spawns it,</text>
-  <text x="94" y="1015" font-size="11.5" fill="#1E40AF">it only waits for it to accept connections.</text>
-  <text x="94" y="1043" font-size="11.5" fill="#1E40AF">One database per service; no cross-database queries:</text>
-  <text x="94" y="1068" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">vndb</tspan> — mirrored entities, JSONB relation columns + GIN,</text>
-  <text x="94" y="1085" font-size="11.5" fill="#1E40AF">soft deletes, and the logs table</text>
-  <text x="94" y="1108" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">imgserve</tspan> — one row per mirrored image</text>
-  <text x="94" y="1130" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">userserve</tspan> — users, collections, ratings</text>
-  <text x="94" y="1152" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">transserve</tspan> — term base + passage memory</text>
-  <text x="94" y="1176" font-size="11.5" font-style="italic" fill="#3B82F6">logserve reads the vndb database · musicserve has none</text>
+  <rect x="78" y="958" width="486" height="244" rx="8" fill="#DBEAFE" stroke="#1D4ED8" stroke-width="2"/>
+  <text x="94" y="984" font-size="15" font-weight="700" fill="#1E3A8A">PostgreSQL · :5432</text>
+  <text x="94" y="1007" font-size="11.5" fill="#1E40AF">Runs as a Windows service — the launcher never spawns it,</text>
+  <text x="94" y="1025" font-size="11.5" fill="#1E40AF">it only waits for it to accept connections.</text>
+  <text x="94" y="1053" font-size="11.5" fill="#1E40AF">One database per service; no cross-database queries:</text>
+  <text x="94" y="1078" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">vndb</tspan> — mirrored entities, JSONB relation columns + GIN,</text>
+  <text x="94" y="1095" font-size="11.5" fill="#1E40AF">soft deletes, and the logs table</text>
+  <text x="94" y="1118" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">imgserve</tspan> — one row per mirrored image</text>
+  <text x="94" y="1140" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">userserve</tspan> — users, collections, ratings</text>
+  <text x="94" y="1162" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">transserve</tspan> — term base + passage memory</text>
+  <text x="94" y="1186" font-size="11.5" font-style="italic" fill="#3B82F6">logserve reads the vndb database · musicserve has none</text>
 
   <!-- redis -->
-  <rect x="584" y="948" width="536" height="244" rx="8" fill="#FEE2E2" stroke="#B91C1C" stroke-width="2"/>
-  <text x="600" y="974" font-size="15" font-weight="700" fill="#7F1D1D">Redis · :6379</text>
-  <text x="600" y="997" font-size="11.5" fill="#991B1B">One server, one logical DB per concern — so no two</text>
-  <text x="600" y="1015" font-size="11.5" fill="#991B1B">consumers ever share a keyspace.</text>
-  <text x="600" y="1043" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">0</tspan>  vndb response cache</text>
-  <text x="600" y="1064" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">1</tspan>  vndb Celery broker          <tspan font-weight="700">2</tspan>  vndb Celery results</text>
-  <text x="600" y="1085" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">3</tspan>  imgserve response cache</text>
-  <text x="600" y="1106" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">4</tspan>  imgserve Celery broker   <tspan font-weight="700">5</tspan>  imgserve Celery results</text>
-  <text x="600" y="1127" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">6</tspan>  userserve rate limits</text>
-  <text x="600" y="1148" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">7</tspan>  JWT blocklist + email verification codes</text>
-  <text x="600" y="1169" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">8</tspan>  imgserve single-flight locks + access ZSET</text>
+  <rect x="584" y="958" width="536" height="244" rx="8" fill="#FEE2E2" stroke="#B91C1C" stroke-width="2"/>
+  <text x="600" y="984" font-size="15" font-weight="700" fill="#7F1D1D">Redis · :6379</text>
+  <text x="600" y="1007" font-size="11.5" fill="#991B1B">One server, one logical DB per concern — so no two</text>
+  <text x="600" y="1025" font-size="11.5" fill="#991B1B">consumers ever share a keyspace.</text>
+  <text x="600" y="1053" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">0</tspan>  vndb response cache</text>
+  <text x="600" y="1074" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">1</tspan>  vndb Celery broker          <tspan font-weight="700">2</tspan>  vndb Celery results</text>
+  <text x="600" y="1095" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">3</tspan>  imgserve response cache</text>
+  <text x="600" y="1116" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">4</tspan>  imgserve Celery broker   <tspan font-weight="700">5</tspan>  imgserve Celery results</text>
+  <text x="600" y="1137" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">6</tspan>  userserve rate limits</text>
+  <text x="600" y="1158" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">7</tspan>  JWT blocklist + email verification codes</text>
+  <text x="600" y="1179" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">8</tspan>  imgserve single-flight locks + access ZSET</text>
 
   <!-- disk -->
-  <rect x="1140" y="948" width="462" height="244" rx="8" fill="#F3E8FF" stroke="#7E22CE" stroke-width="2"/>
-  <text x="1156" y="974" font-size="15" font-weight="700" fill="#581C87">Disk · DATA_FOLDER</text>
-  <text x="1156" y="1000" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">images/</tspan> — the mirrored image cache. Laid out to</text>
-  <text x="1156" y="1018" font-size="11.5" fill="#6B21A8">match t.vndb.org exactly, which is what lets Caddy</text>
-  <text x="1156" y="1036" font-size="11.5" fill="#6B21A8">answer a cache hit without consulting Flask at all.</text>
-  <text x="1156" y="1064" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">music/</tspan> — audio library, scanned from disk;</text>
-  <text x="1156" y="1082" font-size="11.5" fill="#6B21A8">musicserve keeps no database of its own.</text>
-  <text x="1156" y="1110" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">backups/</tspan> — scheduled pg_dump output</text>
-  <text x="1156" y="1136" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">fetch_state.json</tspan> — per-type crawl cursor, so a</text>
-  <text x="1156" y="1154" font-size="11.5" fill="#6B21A8">backfill sweep resumes where the last run stopped.</text>
+  <rect x="1140" y="958" width="462" height="244" rx="8" fill="#F3E8FF" stroke="#7E22CE" stroke-width="2"/>
+  <text x="1156" y="984" font-size="15" font-weight="700" fill="#581C87">Disk · DATA_FOLDER</text>
+  <text x="1156" y="1010" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">images/</tspan> — the mirrored image cache. Laid out to</text>
+  <text x="1156" y="1028" font-size="11.5" fill="#6B21A8">match t.vndb.org exactly, which is what lets Caddy</text>
+  <text x="1156" y="1046" font-size="11.5" fill="#6B21A8">answer a cache hit without consulting Flask at all.</text>
+  <text x="1156" y="1074" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">music/</tspan> — audio library, scanned from disk;</text>
+  <text x="1156" y="1092" font-size="11.5" fill="#6B21A8">musicserve keeps no database of its own.</text>
+  <text x="1156" y="1120" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">backups/</tspan> — scheduled pg_dump output</text>
+  <text x="1156" y="1146" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">fetch_state.json</tspan> — per-type crawl cursor, so a</text>
+  <text x="1156" y="1164" font-size="11.5" fill="#6B21A8">backfill sweep resumes where the last run stopped.</text>
 
-  <!-- ============ arrows ============ -->
-  <!-- caddy down to web tier -->
-  <line x1="170" y1="332" x2="170" y2="412" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
-  <line x1="394" y1="332" x2="394" y2="412" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
-  <line x1="618" y1="332" x2="618" y2="412" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
-  <line x1="842" y1="332" x2="842" y2="412" stroke="#BE185D" stroke-width="2.5" marker-end="url(#arrowPink)"/>
-  <line x1="1066" y1="332" x2="1066" y2="412" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
-  <line x1="1290" y1="332" x2="1290" y2="412" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
-  <text x="852" y="360" font-size="11.5" font-weight="700" fill="#BE185D">forward_auth</text>
-  <text x="852" y="378" font-size="11.5" fill="#BE185D">/auth/verify on every gated request</text>
+  <!-- ============ connections ============ -->
+  <!-- Every segment below is either vertical or horizontal, and no two share a
+       line. Where two must meet they cross at a right angle in open space. -->
 
-  <!-- web -> worker -->
-  <line x1="394" y1="522" x2="394" y2="660" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4"/>
-  <line x1="394" y1="660" x2="254" y2="660" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4"/>
-  <line x1="254" y1="660" x2="254" y2="710" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowYellow)"/>
-  <text x="264" y="650" font-size="11" fill="#A16207">enqueue · Redis 1</text>
+  <!-- browser -> caddy -->
+  <line x1="195" y1="166" x2="195" y2="204" stroke="#1D4ED8" stroke-width="2.5" marker-end="url(#arrowBlue)"/>
+  <text x="205" y="192" font-size="11.5" fill="#1D4ED8">https :30709</text>
 
-  <line x1="618" y1="522" x2="618" y2="668" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4"/>
-  <line x1="618" y1="668" x2="626" y2="668" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4"/>
-  <line x1="626" y1="668" x2="626" y2="710" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowYellow)"/>
-  <text x="636" y="650" font-size="11" fill="#A16207">enqueue · Redis 4</text>
+  <!-- caddy -> each web box -->
+  <line x1="170" y1="332" x2="170" y2="498" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
+  <line x1="394" y1="332" x2="394" y2="498" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
+  <line x1="618" y1="332" x2="618" y2="498" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
+  <line x1="842" y1="332" x2="842" y2="498" stroke="#BE185D" stroke-width="2.5" marker-end="url(#arrowPink)"/>
+  <line x1="1066" y1="332" x2="1066" y2="498" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
+  <line x1="1290" y1="332" x2="1290" y2="498" stroke="#B45309" stroke-width="2" marker-end="url(#arrowAmber)"/>
+  <text x="852" y="356" font-size="11.5" font-weight="700" fill="#BE185D">forward_auth</text>
+  <text x="852" y="373" font-size="11.5" fill="#BE185D">/auth/verify on every gated request</text>
 
-  <!-- workers -> upstream -->
-  <line x1="430" y1="744" x2="872" y2="744" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
-  <line x1="802" y1="790" x2="1130" y2="790" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <line x1="1130" y1="790" x2="1255" y2="790" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3"/>
-  <line x1="1255" y1="790" x2="1255" y2="778" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <!-- web -> its Celery worker. vndb leaves left of the box it descends from, so
+       nothing shares a vertical with the store bus. -->
+  <path d="M 350 610 L 350 668 L 254 668 L 254 722" fill="none" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowYellow)"/>
+  <text x="264" y="662" font-size="11" fill="#A16207">enqueue · Redis 1</text>
+  <line x1="626" y1="610" x2="626" y2="722" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowYellow)"/>
+  <text x="636" y="662" font-size="11" fill="#A16207">enqueue · Redis 4</text>
 
-  <!-- userserve -> smtp, routed below the web tier so it crosses no service box -->
-  <path d="M 866 522 L 866 668 L 1498 668 L 1498 710" fill="none" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <!-- web tier -> stores, down the corridor between the worker and upstream frames -->
+  <line x1="838" y1="644" x2="838" y2="914" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arrowBlue)"/>
+  <text x="852" y="908" font-size="11.5" fill="#6B7280">every service reads and writes its own store</text>
 
-  <!-- web tier -> stores, routed through the gap between the worker and upstream frames -->
-  <path d="M 394 522 L 394 636 L 832 636 L 832 942" fill="none" stroke="#1D4ED8" stroke-width="2" marker-end="url(#arrowBlue)"/>
-  <path d="M 1066 522 L 1066 648 L 840 648 L 840 942" fill="none" stroke="#B91C1C" stroke-width="2" marker-end="url(#arrow)"/>
-  <path d="M 1290 522 L 1290 660 L 848 660 L 848 942" fill="none" stroke="#7E22CE" stroke-width="2" marker-end="url(#arrowPurple)"/>
-  <text x="862" y="936" font-size="11.5" fill="#6B7280">every service reads and writes its own store</text>
+  <!-- workers -> upstream: one edge, since both workers fetch and the boxes say which -->
+  <line x1="822" y1="800" x2="856" y2="800" stroke="#6B7280" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
 
-  <!-- caddy file_server -> disk -->
-  <path d="M 1620 300 L 1650 300 L 1650 1070 L 1608 1070" fill="none" stroke="#7E22CE" stroke-width="2.5" marker-end="url(#arrowPurple)"/>
-  <text x="1360" y="920" font-size="11.5" font-weight="700" fill="#7E22CE">file_server — cache hit, Flask never runs</text>
+  <!-- caddy's file_server fast path, down the right margin outside every frame -->
+  <path d="M 1620 300 L 1652 300 L 1652 1080 L 1608 1080" fill="none" stroke="#7E22CE" stroke-width="2.5" marker-end="url(#arrowPurple)"/>
+  <text x="1352" y="912" font-size="11.5" font-weight="700" fill="#7E22CE">file_server — cache hit, Flask never runs</text>
 
   <!-- ============ legend ============ -->
-  <rect x="60" y="1240" width="756" height="132" rx="8" fill="#FFFFFF" stroke="#9CA3AF" stroke-width="1.5"/>
-  <text x="78" y="1266" font-size="13.5" font-weight="700" fill="#111827">Reading the diagram</text>
-  <text x="78" y="1290" font-size="11.5" fill="#4B5563">Solid arrow = request path    ·    Dashed arrow = asynchronous or outbound</text>
-  <text x="78" y="1312" font-size="11.5" fill="#4B5563"><tspan font-weight="700" fill="#BE185D">Pink</tspan> = the auth path; userserve answers the edge's probe on every gated request</text>
-  <text x="78" y="1334" font-size="11.5" fill="#4B5563"><tspan font-weight="700" fill="#A16207">Amber box</tspan> = a Celery worker, a process of its own — not the web process</text>
-  <text x="78" y="1356" font-size="11.5" fill="#4B5563"><tspan font-weight="700">Dashed grey box</tspan> = not exposed at the edge</text>
+  <rect x="60" y="1250" width="756" height="154" rx="8" fill="#FFFFFF" stroke="#9CA3AF" stroke-width="1.5"/>
+  <text x="78" y="1276" font-size="13.5" font-weight="700" fill="#111827">Reading the diagram</text>
+  <text x="78" y="1300" font-size="11.5" fill="#4B5563">Solid arrow = request path    ·    Dashed arrow = asynchronous or outbound</text>
+  <text x="78" y="1322" font-size="11.5" fill="#4B5563"><tspan font-weight="700" fill="#BE185D">Pink</tspan> = the auth path; userserve answers the edge's probe on every gated request</text>
+  <text x="78" y="1344" font-size="11.5" fill="#4B5563"><tspan font-weight="700" fill="#A16207">Amber box</tspan> = a Celery worker, a process of its own — not the web process</text>
+  <text x="78" y="1366" font-size="11.5" fill="#4B5563"><tspan font-weight="700">Dashed grey box</tspan> = not exposed at the edge</text>
+  <text x="78" y="1388" font-size="11.5" fill="#4B5563">Ports shown are the standalone ones; under Docker the services keep them internally.</text>
 
   <!-- ============ process inventory ============ -->
-  <rect x="864" y="1240" width="756" height="132" rx="8" fill="#FFFFFF" stroke="#9CA3AF" stroke-width="1.5"/>
-  <text x="882" y="1266" font-size="13.5" font-weight="700" fill="#111827">Process inventory (prod)</text>
-  <text x="882" y="1290" font-size="11.5" fill="#4B5563"><tspan font-family="Consolas, monospace">start-prod.ps1</tspan> starts three children: Caddy, Next.js, and <tspan font-family="Consolas, monospace">backend/launch.py prod</tspan>.</text>
-  <text x="882" y="1312" font-size="11.5" fill="#4B5563">launch.py in turn starts Redis, 2 Celery workers, and 6 Waitress-served Flask apps.</text>
-  <text x="882" y="1334" font-size="11.5" fill="#4B5563">PostgreSQL is a Windows service — checked for readiness, never spawned.</text>
-  <text x="882" y="1356" font-size="11.5" fill="#4B5563">The dev stack swaps Waitress for the Flask dev server and adds Flower per worker.</text>
+  <rect x="864" y="1250" width="756" height="154" rx="8" fill="#FFFFFF" stroke="#9CA3AF" stroke-width="1.5"/>
+  <text x="882" y="1276" font-size="13.5" font-weight="700" fill="#111827">Process inventory (prod)</text>
+  <text x="882" y="1300" font-size="11.5" fill="#4B5563"><tspan font-family="Consolas, monospace">start-prod.ps1</tspan> starts three children: Caddy, Next.js, and <tspan font-family="Consolas, monospace">backend/launch.py prod</tspan>.</text>
+  <text x="882" y="1322" font-size="11.5" fill="#4B5563">launch.py declares the children and hands them to <tspan font-family="Consolas, monospace">procserve.Supervisor</tspan>, which starts them</text>
+  <text x="882" y="1340" font-size="11.5" fill="#4B5563">in dependency order and shuts them down in reverse: Redis, 2 Celery workers, 6 Waitress-served</text>
+  <text x="882" y="1358" font-size="11.5" fill="#4B5563">Flask apps. procserve is a library, not a service — it has no port and nothing routes to it.</text>
+  <text x="882" y="1380" font-size="11.5" fill="#4B5563">PostgreSQL is a Windows service — checked for readiness, never spawned. The dev stack swaps</text>
+  <text x="882" y="1398" font-size="11.5" fill="#4B5563">Waitress for the Flask dev server and adds Flower per worker.</text>
 </svg>

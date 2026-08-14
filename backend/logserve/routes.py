@@ -1,3 +1,9 @@
+"""A developer's view of the vndb `logs` table: browse, filter, replay.
+
+Replay re-executes a logged query against the database, which is why this service
+has no route at the edge and is reachable on loopback only.
+"""
+
 from flask import Blueprint, jsonify, render_template, request
 
 from . import operations

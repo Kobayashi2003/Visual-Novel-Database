@@ -8,7 +8,6 @@ from flask import Blueprint, abort, jsonify, request
 
 from .service import TranslationService, TranslationNotImplemented
 from .operations import ValidationError
-from .errors import http_error_code
 
 api_bp = Blueprint('api', __name__, url_prefix='/')
 

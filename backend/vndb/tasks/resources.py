@@ -1,3 +1,13 @@
+"""One task per resource operation, sync or queued.
+
+The route layer calls these directly when `?sync=true`, and hands them to Celery
+otherwise; either way the return value is the same envelope.
+
+The read tasks differ only in where they look: `get_*` local, `search_*` remote,
+`query_*` freshness-aware (see search/both). The write tasks crawl upstream and
+persist, and are what PUT and PATCH reach.
+"""
+
 from typing import Any
 
 from vndb.search import (

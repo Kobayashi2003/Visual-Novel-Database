@@ -1,3 +1,9 @@
+"""The image endpoints. Only the reads are exposed at the edge.
+
+The `/img/<type>/<dir>/<id>.jpg` shape mirrors t.vndb.org exactly, which is what
+lets Caddy answer a cache hit with file_server and never reach Flask.
+"""
+
 from flask import Blueprint, abort, request
 
 from imgserve.tasks.images import (

@@ -1,3 +1,10 @@
+"""Search the local mirror.
+
+The counterpart of search/remote: same parameter names, same {results, count,
+more} reply, but built as a SQLAlchemy query against the mirrored tables. Which
+of the two answers a request is decided in search/both.
+"""
+
 from datetime import date, datetime
 from typing import Any
 

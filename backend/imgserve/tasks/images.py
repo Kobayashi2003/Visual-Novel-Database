@@ -1,3 +1,10 @@
+"""One task per image operation.
+
+Each asks `exists()` before acting so its outcome says which of the several things
+went wrong: the data layer reports every failure as None. See tasks/common for the
+outcome vocabulary.
+"""
+
 import os
 from typing import Dict, List, Any
 from flask import current_app

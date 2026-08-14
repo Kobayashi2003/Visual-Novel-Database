@@ -1,3 +1,14 @@
+"""Fetching image bytes from t.vndb.org.
+
+Retries with a backoff, since a failed image is worth one more try before a
+visitor sees a broken card. Writes go through a temp file and a rename, so a
+half-downloaded file can never be found on disk and mistaken for a cache hit: the
+file's existence is the cache.
+
+`fast=True` is the user-facing path, with fewer retries and a shorter timeout,
+because someone is waiting on it.
+"""
+
 from typing import Optional, List, Dict
 
 import httpx

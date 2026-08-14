@@ -1,3 +1,14 @@
+"""Accounts, sessions, collections and ratings: every database operation.
+
+Client-facing failures are raised as `ValidationError` subclasses, each carrying
+the error code and status the route layer reports. `save_db_operation` re-raises
+those and swallows everything else, so an unexpected failure becomes None and a
+logged traceback rather than a leaked message.
+
+Also owns the session state that is not in Postgres: the JWT revocation blocklist
+and the emailed verification codes, both in Redis with a TTL doing the expiry.
+"""
+
 import re
 import hashlib
 import secrets
@@ -563,13 +574,8 @@ def get_marks_from_category(user_id: int, category_id: int, category_type: str,
     start = (page - 1) * limit
     end = start + limit
 
-    # Paginate the marks
     paginated_marks = sorted_marks[start:end]
-
-    # Extract required fields
     results = [{"id": str(mark['id']), "marked_at": mark['marked_at']} for mark in paginated_marks]
-
-    # Check if there are more results
     more = end < total
 
     return {'results': results, 'more': more, 'count': total} if count else {'results': results, 'more': more}

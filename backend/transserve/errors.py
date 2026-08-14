@@ -1,8 +1,17 @@
-"""HTTP status → machine-readable error code.
+"""This service's error-code vocabulary: HTTP status → machine-readable code.
 
-Kept dependency-free so both the app factory and the routes can import it
-without a cycle. Each service carries its own copy; see docs/api/README.md for
-the shared vocabulary these codes come from.
+The counterpart of the shared table in docs/api/README.md. Each service keeps
+its own copy — the backend has no shared package, deliberately — so a change
+here belongs in every copy and in that document.
+
+The mapping is spelled out rather than derived from Werkzeug's status names
+because 5 of the 12 codes deliberately differ from them: `bad_request` →
+`invalid_request`, `request_entity_too_large` → `payload_too_large`,
+`too_many_requests` → `rate_limited`, `internal_server_error` →
+`internal_error`, `service_unavailable` → `unavailable`.
+
+Imports nothing, so the app factory can pick it up at module level without
+tripping the package's own import cycle.
 """
 
 HTTP_ERROR_CODES = {

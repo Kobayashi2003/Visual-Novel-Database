@@ -1,3 +1,15 @@
+"""The per-type CRUD surface, generated once and bound seven times.
+
+Every entity type gets an identical set of routes, so they are declared once in
+`BaseResourceBlueprint` and specialised by the subclasses at the bottom, which
+differ only in their type name and which related-resource endpoints exist.
+
+The method chooses the data source rather than a parameter doing it: GET reads
+local, POST reads upstream, PUT re-crawls, PATCH edits by hand, DELETE
+soft-deletes. A url_value_preprocessor normalises the id before any handler runs,
+so `/vns/17` and `/vns/v17` are the same request.
+"""
+
 from abc import ABC, abstractmethod
 from flask import Blueprint, jsonify, abort, request
 from vndb.utils.ids import formatId

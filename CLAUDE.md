@@ -4,11 +4,25 @@ A self-hosted VNDB mirror: five Flask services and a Next.js frontend behind one
 Caddy edge.
 
 ```
-backend/     vndb  userserve  imgserve  transserve  musicserve   (Flask + Waitress)
+backend/     vndb  userserve  imgserve  transserve  musicserve  logserve   (Flask + Waitress)
+             procserve — the launcher's process supervisor; a library, not a service
 frontend/    Next.js 16, basePath /visual-novel-database
 Caddyfile*   the edge — routing plus the forward_auth gate
-docs/api/    one OpenAPI 3.1 document per service
+docs/api/    one OpenAPI 3.1 document per service, browsable at /docs
+docs/assets/ architecture.svg is the source; architecture.png is rendered from it
 ```
+
+The frontend routes, all under the basePath — `/v17` is served at
+`/visual-novel-database/v17`:
+
+| Route | Shows |
+| --- | --- |
+| `/` | Home — recent releases by year/month |
+| `/[slug]` | One segment carries both type and id: `/v` searches visual novels, `/v17` is one |
+| `/[slug]/rg` | Relation graph for a visual novel |
+| `/u/c` | User collections — browse, search, sort, bulk-edit |
+| `/kobayashi` | Music-player showcase of a user's VN collection |
+| `/login`, `/reset-password` | Session entry points |
 
 Run the whole stack with `.\start-prod.ps1` (add `-Build` to rebuild the
 frontend first, `-Dev` for the dev servers). Postgres runs as a Windows service

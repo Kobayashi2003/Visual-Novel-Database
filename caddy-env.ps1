@@ -54,4 +54,8 @@ New-Item -ItemType Directory -Path $imageFolder -Force | Out-Null
 
 $vars.IMGSERVE_IMAGE_FOLDER = $imageFolder
 
+# The OpenAPI specs and their browser, served from the repo so /docs always shows
+# the checked-in version — nothing to rebuild or copy after editing a spec.
+$vars.API_DOCS_FOLDER = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'docs/api'))
+
 return $vars

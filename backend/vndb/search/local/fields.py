@@ -1,3 +1,9 @@
+"""Which columns to select for a local search, per entity type.
+
+The local mirror of search/remote/fields: the same `small` / `large` split, so a
+caller switching source gets the same shape back.
+"""
+
 from vndb.database.models import VN as VisualNovel, Tag, Producer, Staff, Character, Trait, Release
 
 class LocalFields:
@@ -57,19 +63,8 @@ def validate_sort(search_type: str, sort: str) -> str:
     return sort
 
 def get_local_fields(search_type: str, response_size: str = 'small') -> list[str]:
-    """
-    Get the appropriate fields for a local database search based on the search type and response size.
-
-    Args:
-        search_type (str): The type of entity to search for ('vn', 'character', 'tag', 'producer', 'staff', 'trait' or 'release').
-        response_size (str): The desired size of the response ('small' or 'large'). Defaults to 'small'.
-
-    Returns:
-        list[str]: A list of field names to be used in the database query.
-
-    Raises:
-        ValueError: If an invalid search_type or response_size is provided.
-    """
+    """The columns to select for a local search. `small` covers what a card
+    needs, `large` the whole entity. Raises ValueError on an unknown type."""
     if response_size not in ['small', 'large']:
         raise ValueError(f"Invalid response_size: {response_size}. Must be 'small' or 'large'.")
 

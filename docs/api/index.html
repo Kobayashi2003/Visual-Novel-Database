@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API — Visual Novel Database</title>
+<script src="js-yaml.min.js"></script>
+<style>
+  :root {
+    --bg:#0e0e10; --panel:#16161a; --panel-2:#1c1c21; --line:#2a2a31;
+    --text:#e7e7ea; --dim:#9a9aa6; --faint:#6d6d78;
+    --accent:#7dd3a0; --accent-dim:#2f6a4a;
+    --get:#4d9de0; --post:#5cb85c; --put:#e0a34d; --patch:#b07de0; --delete:#e05d5d;
+    --code-bg:#101014;
+    --mono: "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing:border-box }
+  html,body { margin:0; height:100% }
+  body {
+    background:var(--bg); color:var(--text);
+    font:14px/1.6 "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display:grid; grid-template-columns:290px 1fr; height:100vh; overflow:hidden;
+  }
+
+  /* ---------- sidebar ---------- */
+  aside { background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:0 0 40px }
+  .brand { padding:18px 20px 14px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:2 }
+  .brand h1 { margin:0; font-size:15px; letter-spacing:.02em }
+  .brand p { margin:4px 0 0; font-size:11.5px; color:var(--faint) }
+  .specs { padding:12px 12px 4px; display:flex; flex-direction:column; gap:2px }
+  .specs button {
+    all:unset; cursor:pointer; padding:7px 10px; border-radius:6px; font-size:13px;
+    color:var(--dim); display:flex; justify-content:space-between; align-items:center;
+  }
+  .specs button:hover { background:var(--panel-2); color:var(--text) }
+  .specs button[aria-current="true"] { background:var(--accent-dim); color:#fff; font-weight:600 }
+  .specs .n { font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums }
+  .specs button[aria-current="true"] .n { color:#cfe9dc }
+
+  nav { padding:6px 12px }
+  nav .tag { font-size:10.5px; text-transform:uppercase; letter-spacing:.09em; color:var(--faint); padding:14px 10px 6px }
+  nav a {
+    display:flex; gap:8px; align-items:baseline; padding:5px 10px; border-radius:6px;
+    color:var(--dim); text-decoration:none; font-size:12.5px;
+  }
+  nav a:hover { background:var(--panel-2); color:var(--text) }
+  nav a .m { font-size:9.5px; font-weight:700; letter-spacing:.04em; min-width:44px; text-transform:uppercase }
+  nav a .p { font-family:var(--mono); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+
+  /* ---------- main ---------- */
+  main { overflow-y:auto; padding:0 0 120px; scroll-behavior:smooth }
+  .wrap { max-width:960px; padding:32px 44px }
+  h2.spec-title { margin:0 0 4px; font-size:26px; letter-spacing:-.01em }
+  .spec-meta { color:var(--faint); font-size:12.5px; margin-bottom:18px }
+  .spec-desc { color:var(--dim); font-size:13.5px; max-width:76ch }
+  .spec-desc p { margin:0 0 12px }
+
+  section.op { border-top:1px solid var(--line); padding:26px 0 4px; scroll-margin-top:12px }
+  .op-head { display:flex; gap:12px; align-items:center; flex-wrap:wrap }
+  .method {
+    font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.06em;
+    padding:3px 9px; border-radius:5px; text-transform:uppercase; color:#0b0b0d;
+  }
+  .path { font-family:var(--mono); font-size:14px; color:var(--text); word-break:break-all }
+  .summary { margin:10px 0 0; font-size:15px; font-weight:600 }
+  .desc { color:var(--dim); font-size:13.5px; max-width:76ch }
+  .desc p { margin:8px 0 }
+  .desc code, .spec-desc code, td code { font-family:var(--mono); font-size:12px; background:var(--code-bg); padding:1px 5px; border-radius:4px; color:#cfe9dc }
+  .desc strong { color:var(--text) }
+  .desc ul, .spec-desc ul { margin:8px 0; padding-left:20px }
+  .desc li, .spec-desc li { margin:5px 0 }
+  .desc table { border-collapse:collapse; margin:10px 0; font-size:12.5px }
+  .desc th, .desc td { border:1px solid var(--line); padding:5px 10px; text-align:left }
+  .desc th { color:var(--faint); font-weight:600 }
+
+  h4 { margin:20px 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--faint) }
+  table.params { width:100%; border-collapse:collapse; font-size:13px }
+  table.params td { padding:7px 10px; border-top:1px solid var(--line); vertical-align:top }
+  table.params tr:first-child td { border-top:none }
+  .pname { font-family:var(--mono); font-size:12.5px; white-space:nowrap }
+  .req { color:var(--delete); font-size:10px; margin-left:5px; vertical-align:super }
+  .ptype { color:var(--faint); font-size:11.5px; font-family:var(--mono) }
+  .pin { color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em }
+  .pdesc { color:var(--dim); font-size:12.5px }
+
+  .resp { display:flex; gap:12px; padding:7px 0; border-top:1px solid var(--line); font-size:13px }
+  .resp:first-of-type { border-top:none }
+  .code { font-family:var(--mono); font-weight:700; min-width:40px }
+  .c2 { color:var(--accent) } .c3 { color:var(--put) } .c4 { color:var(--put) } .c5 { color:var(--delete) }
+  .rdesc { color:var(--dim); font-size:12.5px }
+
+  pre { background:var(--code-bg); border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+        overflow-x:auto; font-family:var(--mono); font-size:12px; line-height:1.55; margin:8px 0 0 }
+
+  /* ---------- try it ---------- */
+  .try { margin:18px 0 0; border:1px solid var(--line); border-radius:10px; background:var(--panel) }
+  .try > summary { cursor:pointer; padding:10px 14px; font-size:12.5px; color:var(--dim); user-select:none; list-style:none }
+  .try > summary::-webkit-details-marker { display:none }
+  .try > summary::before { content:"▸ "; color:var(--faint) }
+  .try[open] > summary::before { content:"▾ " }
+  .try > summary:hover { color:var(--text) }
+  .try-body { padding:4px 14px 16px; border-top:1px solid var(--line) }
+  .field { display:grid; grid-template-columns:180px 1fr; gap:10px; align-items:center; margin:9px 0 }
+  .field label { font-family:var(--mono); font-size:12px; color:var(--dim) }
+  .field input, .try-body textarea {
+    background:var(--code-bg); border:1px solid var(--line); border-radius:6px; color:var(--text);
+    padding:6px 9px; font-family:var(--mono); font-size:12px; width:100%;
+  }
+  .field input:focus, .try-body textarea:focus { outline:none; border-color:var(--accent-dim) }
+  .try-body textarea { min-height:96px; resize:vertical; margin-top:6px }
+  .send {
+    all:unset; cursor:pointer; margin-top:14px; padding:7px 18px; border-radius:6px;
+    background:var(--accent); color:#0b0b0d; font-weight:700; font-size:12.5px;
+  }
+  .send:hover { filter:brightness(1.1) }
+  .send[disabled] { opacity:.5; cursor:progress }
+  .result { margin-top:14px }
+  .result-head { display:flex; gap:10px; align-items:center; font-size:12.5px; margin-bottom:6px }
+  .status-pill { font-family:var(--mono); font-weight:700; padding:2px 9px; border-radius:5px; font-size:11.5px }
+  .hint { color:var(--faint); font-size:11.5px; margin-top:10px }
+
+  ::-webkit-scrollbar { width:10px; height:10px }
+  ::-webkit-scrollbar-thumb { background:#2e2e36; border-radius:5px }
+  ::-webkit-scrollbar-track { background:transparent }
+
+  @media (max-width:900px) { body { grid-template-columns:1fr } aside { display:none } .wrap { padding:24px 20px } }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <h1>Visual Novel Database API</h1>
+    <p>Five services behind one edge</p>
+  </div>
+  <div class="specs" id="specs"></div>
+  <nav id="nav"></nav>
+</aside>
+
+<main><div class="wrap" id="content">Loading…</div></main>
+
+<script>
+// Each spec is served from this same directory, and each service sits at its own
+// path prefix on this same origin — so "try it" runs against the live stack with
+// the session cookie already attached.
+const SPECS = [
+  { file:'vndb.yaml',       name:'vndb',       prefix:'/vndb' },
+  { file:'userserve.yaml',  name:'userserve',  prefix:'/userserve' },
+  { file:'imgserve.yaml',   name:'imgserve',   prefix:'/imgserve' },
+  { file:'transserve.yaml', name:'transserve', prefix:'/transserve' },
+  { file:'musicserve.yaml', name:'musicserve', prefix:'/musicserve' },
+];
+const METHODS = ['get','post','put','patch','delete'];
+const COLOR = { get:'var(--get)', post:'var(--post)', put:'var(--put)', patch:'var(--patch)', delete:'var(--delete)' };
+
+let doc = null, current = null;
+
+/* ---------- helpers ---------- */
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// $ref is always local ("#/components/..."), so resolving is a walk down the doc.
+// Cycles are possible in principle; depth is capped rather than tracked.
+function deref(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 12) return node;
+  if (node.$ref) {
+    const path = node.$ref.replace(/^#\//, '').split('/');
+    let t = doc;
+    for (const p of path) t = t?.[p];
+    return deref(t, depth + 1);
+  }
+  return node;
+}
+
+// The specs lean on a small amount of Markdown in their descriptions: fenced and
+// inline code, bold, links, and the occasional pipe table. Rendering that here is
+// cheaper than pulling in a Markdown library for six constructs.
+function md(text) {
+  if (!text) return '';
+  const blocks = String(text).split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+  return blocks.map(b => {
+    if (b.startsWith('```')) return `<pre>${esc(b.replace(/```\w*\n?/g, '').trim())}</pre>`;
+    if (/^\|.*\|$/m.test(b) && b.split('\n').length > 1) {
+      const rows = b.split('\n').filter(r => r.trim().startsWith('|'));
+      const cells = r => r.split('|').slice(1, -1).map(c => c.trim());
+      const head = cells(rows[0]);
+      const body = rows.slice(2).map(cells);
+      return `<table><tr>${head.map(h => `<th>${inline(h)}</th>`).join('')}</tr>` +
+             body.map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join('')}</tr>`).join('') + '</table>';
+    }
+    if (/^\s*[*-] /m.test(b)) {
+      // A list item runs until the next bullet: indented continuation lines
+      // belong to the item above, not to a new one.
+      const items = [];
+      for (const line of b.split('\n')) {
+        if (/^\s*[*-] /.test(line)) items.push(line.replace(/^\s*[*-] /, ''));
+        else if (items.length) items[items.length - 1] += ' ' + line.trim();
+      }
+      return `<ul>${items.map(i => `<li>${inline(i)}</li>`).join('')}</ul>`;
+    }
+    return `<p>${inline(b)}</p>`;
+  }).join('');
+}
+
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:var(--accent)">$1</a>')
+    .replace(/\n/g, ' ');
+}
+
+function typeOf(schema) {
+  const s = deref(schema);
+  if (!s) return '';
+  if (s.enum) return s.enum.join(' | ');
+  if (s.const !== undefined) return JSON.stringify(s.const);
+  if (Array.isArray(s.type)) return s.type.join(' | ');
+  if (s.type === 'array') return `${typeOf(s.items) || 'any'}[]`;
+  return s.type || (s.properties ? 'object' : '');
+}
+
+// A minimal example, so the "try it" body starts from something valid.
+function sample(schema, depth = 0) {
+  const s = deref(schema);
+  if (!s || depth > 5) return null;
+  if (s.example !== undefined) return s.example;
+  if (s.examples?.length) return s.examples[0];
+  if (s.const !== undefined) return s.const;
+  if (s.enum) return s.enum[0];
+  if (s.oneOf) return sample(s.oneOf[0], depth + 1);
+  const t = Array.isArray(s.type) ? s.type[0] : s.type;
+  if (t === 'array') return [sample(s.items, depth + 1)].filter(v => v !== null);
+  if (t === 'object' || s.properties) {
+    const o = {};
+    for (const [k, v] of Object.entries(s.properties || {})) o[k] = sample(v, depth + 1);
+    return o;
+  }
+  if (t === 'integer' || t === 'number') return 0;
+  if (t === 'boolean') return false;
+  if (t === 'string') return s.format === 'email' ? 'user@example.com' : 'string';
+  return null;
+}
+
+const opId = (p, m) => (m + p).replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+
+/* ---------- rendering ---------- */
+
+function operations() {
+  const out = [];
+  for (const [path, item] of Object.entries(doc.paths || {})) {
+    for (const m of METHODS) {
+      if (!item[m]) continue;
+      out.push({ path, method: m, op: item[m], shared: item.parameters || [] });
+    }
+  }
+  return out;
+}
+
+function renderNav(ops) {
+  const groups = new Map();
+  for (const o of ops) {
+    const tag = o.op.tags?.[0] || 'endpoints';
+    if (!groups.has(tag)) groups.set(tag, []);
+    groups.get(tag).push(o);
+  }
+  nav.innerHTML = [...groups].map(([tag, list]) => `
+    <div class="tag">${esc(tag)}</div>
+    ${list.map(o => `<a href="#${opId(o.path, o.method)}">
+       <span class="m" style="color:${COLOR[o.method]}">${o.method}</span>
+       <span class="p">${esc(o.path)}</span></a>`).join('')}
+  `).join('');
+}
+
+function renderParams(params) {
+  if (!params.length) return '';
+  return `<h4>Parameters</h4><table class="params">` + params.map(p => {
+    const d = deref(p);
+    return `<tr>
+      <td class="pname">${esc(d.name)}${d.required ? '<span class="req">required</span>' : ''}
+          <div class="pin">${esc(d.in)}</div></td>
+      <td><div class="ptype">${esc(typeOf(d.schema))}${d.schema?.default !== undefined ? ` · default ${esc(JSON.stringify(d.schema.default))}` : ''}</div>
+          <div class="pdesc">${md(d.description)}</div></td>
+    </tr>`;
+  }).join('') + `</table>`;
+}
+
+function renderBody(rb) {
+  const b = deref(rb);
+  if (!b) return '';
+  const schema = b.content?.['application/json']?.schema;
+  const ex = sample(schema);
+  return `<h4>Request body${b.required ? ' <span class="req">required</span>' : ''}</h4>
+    ${md(b.content?.['application/json']?.schema?.description || b.description)}
+    ${ex !== null ? `<pre>${esc(JSON.stringify(ex, null, 2))}</pre>` : ''}`;
+}
+
+function renderResponses(responses) {
+  if (!responses) return '';
+  return `<h4>Responses</h4>` + Object.entries(responses).map(([code, r]) => {
+    const d = deref(r);
+    return `<div class="resp">
+      <span class="code c${String(code)[0]}">${esc(code)}</span>
+      <span class="rdesc">${md(d.description) || ''}</span></div>`;
+  }).join('');
+}
+
+function renderTry(o, params) {
+  const pathParams = params.filter(p => deref(p).in === 'path');
+  const queryParams = params.filter(p => deref(p).in === 'query');
+  const body = deref(o.op.requestBody);
+  const ex = body ? sample(body.content?.['application/json']?.schema) : null;
+  const id = opId(o.path, o.method);
+
+  return `<details class="try" data-path="${esc(o.path)}" data-method="${o.method}">
+    <summary>Try it — sends to <code>${esc(current.prefix + o.path)}</code> on this origin, with your session</summary>
+    <div class="try-body">
+      ${pathParams.map(p => { const d = deref(p); return `
+        <div class="field"><label>${esc(d.name)}</label>
+        <input data-kind="path" data-name="${esc(d.name)}" placeholder="${esc(typeOf(d.schema))}"></div>`; }).join('')}
+      ${queryParams.map(p => { const d = deref(p); return `
+        <div class="field"><label>${esc(d.name)}</label>
+        <input data-kind="query" data-name="${esc(d.name)}" placeholder="${esc(d.schema?.default ?? typeOf(d.schema))}"></div>`; }).join('')}
+      ${body ? `<textarea data-kind="body" spellcheck="false">${esc(ex !== null ? JSON.stringify(ex, null, 2) : '{}')}</textarea>` : ''}
+      <button class="send" data-id="${id}">Send</button>
+      <div class="result" id="result-${id}"></div>
+    </div>
+  </details>`;
+}
+
+function render(spec) {
+  current = spec;
+  document.querySelectorAll('.specs button').forEach(b =>
+    b.setAttribute('aria-current', String(b.dataset.file === spec.file)));
+
+  const ops = operations();
+  renderNav(ops);
+
+  content.innerHTML = `
+    <h2 class="spec-title">${esc(doc.info?.title || spec.name)}</h2>
+    <div class="spec-meta">v${esc(doc.info?.version || '—')} · ${ops.length} operations ·
+      served at <code>${esc(spec.prefix)}</code></div>
+    <div class="spec-desc">${md(doc.info?.description)}</div>
+    ${ops.map(o => {
+      const params = [...(o.shared || []), ...(o.op.parameters || [])];
+      return `<section class="op" id="${opId(o.path, o.method)}">
+        <div class="op-head">
+          <span class="method" style="background:${COLOR[o.method]}">${o.method}</span>
+          <span class="path">${esc(o.path)}</span>
+        </div>
+        <div class="summary">${esc(o.op.summary || '')}</div>
+        <div class="desc">${md(o.op.description)}</div>
+        ${renderParams(params)}
+        ${renderBody(o.op.requestBody)}
+        ${renderResponses(o.op.responses)}
+        ${renderTry(o, params)}
+      </section>`;
+    }).join('')}`;
+  main.scrollTop = 0;
+}
+
+/* ---------- try it ---------- */
+
+const cookie = name => document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))?.[1];
+
+async function send(btn) {
+  const details = btn.closest('.try');
+  const out = details.querySelector('.result');
+  let path = details.dataset.path;
+  const method = details.dataset.method.toUpperCase();
+
+  const qs = new URLSearchParams();
+  details.querySelectorAll('input').forEach(i => {
+    if (!i.value) return;
+    if (i.dataset.kind === 'path') path = path.replace(`{${i.dataset.name}}`, encodeURIComponent(i.value));
+    else qs.set(i.dataset.name, i.value);
+  });
+
+  const url = current.prefix + path + (qs.toString() ? `?${qs}` : '');
+  const headers = {};
+  const bodyEl = details.querySelector('textarea');
+  if (bodyEl) headers['Content-Type'] = 'application/json';
+  // userserve rejects an unsafe method whose CSRF header does not match the
+  // cookie flask-jwt-extended issued beside the access token.
+  if (method !== 'GET') {
+    const csrf = cookie('csrf_access_token');
+    if (csrf) headers['X-CSRF-TOKEN'] = decodeURIComponent(csrf);
+  }
+
+  btn.disabled = true;
+  out.innerHTML = '<div class="hint">Sending…</div>';
+  const started = performance.now();
+  try {
+    const res = await fetch(url, {
+      method, headers, credentials:'include',
+      body: bodyEl ? bodyEl.value : undefined,
+    });
+    const ms = Math.round(performance.now() - started);
+    const ctype = res.headers.get('content-type') || '';
+    let shown;
+    if (ctype.includes('json')) {
+      shown = JSON.stringify(await res.json(), null, 2);
+    } else if (ctype.startsWith('image/') || ctype.startsWith('audio/')) {
+      shown = `<${ctype}, ${res.headers.get('content-length') || '?'} bytes — not rendered>`;
+    } else {
+      shown = (await res.text()).slice(0, 4000);
+    }
+    const cls = res.status < 300 ? 'c2' : res.status < 500 ? 'c4' : 'c5';
+    out.innerHTML = `
+      <div class="result-head">
+        <span class="status-pill ${cls}" style="background:var(--code-bg)">${res.status} ${esc(res.statusText)}</span>
+        <span class="hint" style="margin:0">${ms} ms · ${esc(ctype.split(';')[0] || 'no content-type')}</span>
+      </div>
+      <pre>${esc(shown)}</pre>
+      ${res.status === 403 ? '<div class="hint">403 comes from the edge: this path is not on the prefix’s allowlist, so it was never forwarded. Loopback only.</div>' : ''}
+      ${res.status === 401 ? '<div class="hint">401 means no valid session — sign in to the site in another tab, then retry.</div>' : ''}`;
+  } catch (e) {
+    out.innerHTML = `<div class="result-head"><span class="status-pill c5" style="background:var(--code-bg)">network error</span></div>
+      <pre>${esc(e.message)}</pre>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- boot ---------- */
+
+const specsEl = document.getElementById('specs');
+const nav = document.getElementById('nav');
+const content = document.getElementById('content');
+const main = document.querySelector('main');
+
+document.addEventListener('click', e => {
+  if (e.target.classList?.contains('send')) send(e.target);
+});
+
+async function load(spec) {
+  content.innerHTML = '<div class="hint">Loading…</div>';
+  try {
+    const text = await fetch(spec.file, { credentials:'include' }).then(r => {
+      if (!r.ok) throw new Error(`${spec.file} → HTTP ${r.status}`);
+      return r.text();
+    });
+    doc = jsyaml.load(text);
+    render(spec);
+    location.hash = `#spec=${spec.name}`;
+  } catch (e) {
+    content.innerHTML = `<h2 class="spec-title">Could not load ${esc(spec.file)}</h2>
+      <div class="desc"><p>${esc(e.message)}</p></div>`;
+  }
+}
+
+(async () => {
+  // Operation counts sit in the sidebar, so every spec is parsed once up front.
+  for (const s of SPECS) {
+    const b = document.createElement('button');
+    b.dataset.file = s.file;
+    b.innerHTML = `<span>${s.name}</span><span class="n">…</span>`;
+    b.onclick = () => load(s);
+    specsEl.appendChild(b);
+    fetch(s.file, { credentials:'include' })
+      .then(r => r.ok ? r.text() : Promise.reject())
+      .then(t => {
+        const d = jsyaml.load(t);
+        const n = Object.values(d.paths || {})
+          .reduce((a, p) => a + METHODS.filter(m => p[m]).length, 0);
+        b.querySelector('.n').textContent = n;
+      })
+      .catch(() => { b.querySelector('.n').textContent = '—'; });
+  }
+  const fromHash = () => SPECS.find(s => s.name === location.hash.match(/spec=(\w+)/)?.[1]);
+  await load(fromHash() || SPECS[0]);
+
+  // Keeps a pasted or bookmarked #spec= working on an already-open page, and
+  // makes Back step between specs rather than out of the viewer.
+  addEventListener('hashchange', () => {
+    const s = fromHash();
+    if (s && s !== current) load(s);
+  });
+})();
+</script>
+</body>
+</html>

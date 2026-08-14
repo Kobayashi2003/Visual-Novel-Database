@@ -1,3 +1,12 @@
+"""Helpers shared by the local and remote search paths.
+
+`convert_remote_to_local` reshapes a Kana API payload into the local column
+layout, dropping the relation-only fields the local schema has no place for; every
+crawl path writes through it. The `process_*` helpers normalise the formats the
+two sides disagree on (resolution, release date, birthday), and `log_search`
+records a query for logserve to replay.
+"""
+
 import re
 
 from vndb.logger import add_log_entry, logger

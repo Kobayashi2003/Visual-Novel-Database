@@ -1,3 +1,13 @@
+"""The HTTP surface. Request and response shapes are in docs/api/userserve.yaml.
+
+Unlike the other services this one authenticates, so most routes are scoped to the
+caller: reading or writing another user's record is 403, not 404. The exception is
+the public-collection route, which any signed-in user may read for any user.
+
+`/auth/verify` is not for clients. It is the probe the Caddy edge runs against
+every gated request for every other service.
+"""
+
 from flask import Blueprint, jsonify, make_response, request, current_app
 from flask_jwt_extended import (
     jwt_required, get_jwt_identity, get_jwt,

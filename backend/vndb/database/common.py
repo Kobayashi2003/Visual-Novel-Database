@@ -1,3 +1,10 @@
+"""Model to plain dict, for JSON responses.
+
+Column types the JSON encoder cannot take on its own (arrays, JSONB, enums,
+datetimes) are converted here, and relationship attributes are walked so a
+response can embed a related row rather than only its id.
+"""
+
 import json
 from datetime import date, datetime
 from sqlalchemy import inspect
@@ -27,7 +34,6 @@ def convert_value(value, column=None):
     elif column and isinstance(column.columns[0].type, JSONB):
         return value  # JSONB is already JSON-serializable
     elif isinstance(value, InstrumentedAttribute):
-        # Handle relationships
         if value.property.uselist:
             return [convert_model_to_dict(item) for item in value]
         elif value.property.mapper:

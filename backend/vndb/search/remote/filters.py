@@ -1,3 +1,14 @@
+"""Build the Kana API's filter trees from flat query parameters.
+
+Upstream takes filters as nested `["and", [...], [...]]` lists; callers here pass
+plain `?lang=ja&length=>2` style parameters. This module does the translation,
+including the `,`/`+` expression grammar (see search/parse) and the tag and trait
+name to id lookups the API requires.
+
+`get_*_additional_filters` holds the parameters this project adds on top of the
+upstream vocabulary; the main `get_*_filters` stay faithful to the Kana API.
+"""
+
 import re
 from typing import Any, Callable
 from enum import Enum, auto
@@ -370,7 +381,6 @@ def parse_tag_expression(expression: str, directly: bool = False, spoil: bool = 
         tags = re.split(r'[+,()]', expr)
         tags = [tag.strip() for tag in tags if tag.strip()]
 
-        # Create mapping of original tags to their IDs
         tag_map = {}
         for tag in tags:
             if tag not in tag_map:
@@ -563,15 +573,7 @@ def get_trait_additional_filters(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_vn_filters(params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate filters for visual novel searches based on the provided parameters.
-
-    Args:
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for visual novel searches.
-    """
+    """The Kana API filter list for a visual novel search, built from `params`."""
     filters = []
 
     if id := params.get('id'):
@@ -586,35 +588,30 @@ def get_vn_filters(params: dict[str, Any]) -> dict[str, Any]:
     if dtag := params.get('dtag'):
         filters.append(parse_tag_expression(dtag, directly=True))
 
-    # Handle fields that may contain multiple values
     multi_value_fields = ['lang', 'platform', 'released', 'olang']
     for field in multi_value_fields:
         if value := params.get(field):
             if parsed := parse_logical_expression(value, field):
                 filters.append(parsed)
 
-    # Handle nested fields
     nested_fields = ['character', 'staff', 'developer', 'release']
     for field in nested_fields:
         if value := params.get(field):
             if parsed := parse_logical_expression(value, 'search'):
                 filters.append({field: parsed})
 
-    # Handle uncomparable numeric fields
     uncomparable_numeric_fields = ['devstatus']
     for field in uncomparable_numeric_fields:
         if value := params.get(field):
             if parsed := parse_int(value):
                 filters.append({field: parsed})
 
-    # Handle comparable numeric fields
     comparable_numeric_fields = ['length', 'rating', 'votecount']
     for field in comparable_numeric_fields:
         if value := params.get(field):
             if parsed := parse_int(value, True):
                 filters.append({field: parsed})
 
-    # Handle boolean fields
     boolean_fields = ['has_description', 'has_anime', 'has_screenshot', 'has_review']
     for field in boolean_fields:
         if value := params.get(field):
@@ -626,15 +623,7 @@ def get_vn_filters(params: dict[str, Any]) -> dict[str, Any]:
     return {"and": filters} if len(filters) > 1 else filters[0] if filters else {}
 
 def get_release_filters(params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate filters for release searches based on the provided parameters.
-
-    Args:
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for release searches.
-    """
+    """The Kana API filter list for a release search, built from `params`."""
     filters = []
 
     if id := params.get('id'):
@@ -643,18 +632,15 @@ def get_release_filters(params: dict[str, Any]) -> dict[str, Any]:
     if search := params.get('search'):
         filters.append({"search": search})
 
-    # Handle fields that may contain multiple values
     multi_value_fields = ['lang', 'platform', 'medium', 'drm', 'image']
     for field in multi_value_fields:
         if value := params.get(field):
             if parsed := parse_logical_expression(value, field):
                 filters.append(parsed)
 
-    # Handle date field
     if released := params.get('released'):
         filters.append({"released": released})
 
-    # Handle resolution and resolution_aspect
     for field in ['resolution', 'resolution_aspect']:
         if value := params.get(field):
             try:
@@ -663,40 +649,34 @@ def get_release_filters(params: dict[str, Any]) -> dict[str, Any]:
             except ValueError:
                 pass  # Invalid format, skip this filter
 
-    # Handle uncomparable numeric fields
     uncomparable_numeric_fields = ['voiced']
     for field in uncomparable_numeric_fields:
         if value := params.get(field):
             if parsed := parse_int(value):
                 filters.append({field: parsed})
 
-    # Handle comparable numeric fields
     comparable_numeric_fields = ['minage']
     for field in comparable_numeric_fields:
         if value := params.get(field):
             if parsed := parse_int(value, True):
                 filters.append({field: parsed})
 
-    # Handle string fields
     string_fields = ['engine', 'rtype']
     for field in string_fields:
         if value := params.get(field):
             filters.append({field: value})
 
-    # Handle boolean fields
     boolean_fields = ['patch', 'freeware', 'uncensored', 'official', 'has_ero']
     for field in boolean_fields:
         if value := params.get(field):
             filters.append({field: str(value).lower() == 'true' or str(value) == '1'})
 
-    # Handle nested fields
     nested_fields = ['vn', 'producer']
     for field in nested_fields:
         if value := params.get(field):
             if parsed := parse_logical_expression(value, 'search'):
                 filters.append({field: parsed})
 
-    # Handle extlink field
     if extlink := params.get('extlink'):
         filters.append({"extlink": extlink})
 
@@ -705,15 +685,7 @@ def get_release_filters(params: dict[str, Any]) -> dict[str, Any]:
     return {"and": filters} if len(filters) > 1 else filters[0] if filters else {}
 
 def get_character_filters(params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate filters for character searches based on the provided parameters.
-
-    Args:
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for character searches.
-    """
+    """The Kana API filter list for a character search, built from `params`."""
     filters = []
 
     if id := params.get('id'):
@@ -738,7 +710,6 @@ def get_character_filters(params: dict[str, Any]) -> dict[str, Any]:
             if parsed := parse_logical_expression(value, field):
                 filters.append(parsed)
 
-    # Handle nested fields
     nested_fields = ['seiyuu', 'vn']
     for field in nested_fields:
         if value := params.get(field):
@@ -761,15 +732,7 @@ def get_character_filters(params: dict[str, Any]) -> dict[str, Any]:
     return {"and": filters} if len(filters) > 1 else filters[0] if filters else {}
 
 def get_producer_filters(params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate filters for producer searches based on the provided parameters.
-
-    Args:
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for producer searches.
-    """
+    """The Kana API filter list for a producer search, built from `params`."""
     filters = []
 
     if id := params.get('id'):
@@ -792,15 +755,7 @@ def get_producer_filters(params: dict[str, Any]) -> dict[str, Any]:
     return {"and": filters} if len(filters) > 1 else filters[0] if filters else {}
 
 def get_staff_filters(params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate filters for staff searches based on the provided parameters.
-
-    Args:
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for staff searches.
-    """
+    """The Kana API filter list for a staff search, built from `params`."""
     filters = []
 
     if id := params.get('id'):
@@ -833,15 +788,7 @@ def get_staff_filters(params: dict[str, Any]) -> dict[str, Any]:
     return {"and": filters} if len(filters) > 1 else filters[0] if filters else {}
 
 def get_tag_filters(params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate filters for tag searches based on the provided parameters.
-
-    Args:
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for tag searches.
-    """
+    """The Kana API filter list for a tag search, built from `params`."""
     filters = []
 
     if id := params.get('id'):
@@ -859,15 +806,7 @@ def get_tag_filters(params: dict[str, Any]) -> dict[str, Any]:
     return {"and": filters} if len(filters) > 1 else filters[0] if filters else {}
 
 def get_trait_filters(params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Generate filters for trait searches based on the provided parameters.
-
-    Args:
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for trait searches.
-    """
+    """The Kana API filter list for a trait search, built from `params`."""
     filters = []
 
     if id := params.get('id'):
@@ -882,19 +821,7 @@ def get_trait_filters(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_remote_filters(search_type: str, params: dict[str, Any]) -> list:
-    """
-    Generate filters for remote searches based on the search type and provided parameters.
-
-    Args:
-        search_type (str): The type of search (e.g., 'vn', 'character', 'producer', etc.).
-        params (dict[str, Any]): The search parameters.
-
-    Returns:
-        dict[str, Any]: A dictionary of filters for the specified search type.
-
-    Raises:
-        ValueError: If an invalid search_type is provided.
-    """
+    """Dispatch to the per-type builder. Raises ValueError on an unknown type."""
 
     if search_type == 'vn':
         return build_filters(VNDBFilters.VN, get_vn_filters(params))

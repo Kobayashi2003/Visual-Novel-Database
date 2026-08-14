@@ -1,3 +1,5 @@
+"""`flask` commands for the userserve database: create, drop, inspect, back up."""
+
 import os
 import subprocess
 from datetime import datetime, timezone

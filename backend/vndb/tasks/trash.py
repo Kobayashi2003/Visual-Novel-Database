@@ -1,3 +1,8 @@
+"""Tasks over soft-deleted rows: list, recover, or delete for good.
+
+`cleanup` is the only path in the service that removes a row permanently.
+"""
+
 from typing import Any
 
 from vndb.database import (

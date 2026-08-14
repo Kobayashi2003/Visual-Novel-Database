@@ -1,3 +1,14 @@
+"""Process lifecycle for the launcher's children.
+
+Owns the whole run: a topological start so dependencies come up first, one log
+pump per child with the output prefixed and colourised by name, and a
+reverse-topological shutdown when a signal arrives.
+
+Deliberately not included: health probes and auto-restart. A child that dies is
+reported, not resurrected — this supervises a development stack, where a crash
+should be visible rather than papered over.
+"""
+
 import logging
 import os
 import signal

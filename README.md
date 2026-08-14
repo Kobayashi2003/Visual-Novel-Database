@@ -24,10 +24,8 @@ the frontend uses, and every allowlisted request is probed against `userserve /a
 is forwarded — so **vndb, imgserve, transserve and musicserve contain no auth code at all**, and their
 admin and write routes stay reachable only on the loopback ports.
 
-> The rendered image is `architecture.png`, produced from
-> [`architecture.svg`](docs/assets/architecture.svg) — edit the SVG, then rasterise it at 1680×1420.
-> [`architecture.drawio`](docs/assets/architecture.drawio) carries the same diagram for editing in the
-> VS Code Draw.io extension; keep the two in step when either changes.
+> Source: [`architecture.svg`](docs/assets/architecture.svg) — edit it, then rasterise to
+> `architecture.png` at 1680×1442.
 
 ## Preview
 
@@ -47,36 +45,11 @@ admin and write routes stay reachable only on the loopback ports.
 
 > Screenshots are shown in all-ages (Safe) mode.
 
-## Backend
+## API
 
-A handful of focused Flask apps, orchestrated by a single launcher and fronted by Caddy.
-
-| App | Purpose |
-| --- | --- |
-| **vndb** | Core API. Crawls the Kana API into local Postgres and serves VNs, releases, producers, characters, staff, tags & traits, plus search (local / remote / both). |
-| **imgserve** | Localizes and serves images (covers, screenshots) with caching. |
-| **userserve** | User accounts — registration, JWT auth, email, and personal collections/lists. |
-| **transserve** | Translation layer — stores and serves en→ja translations of tag/trait descriptions. |
-| **musicserve** | Serves the local music library for the player. |
-| **logserve** | Developer tool to browse, filter & replay recorded searches (the `logs` table). Loopback-only — not behind Caddy. |
-| **procserve** | Process supervisor used by the launcher to start/manage all services. |
-
-## Frontend
-
-A single Next.js app. Most browsing flows through one catch-all route.
-
-Routes are relative to the app's basePath — `/v17` is served at
-`/visual-novel-database/v17`. See *Running* below.
-
-| Route | Shows |
-| --- | --- |
-| `/` | Home — recent releases by year/month. |
-| `/[type]` (`v r p c s g i`) | Search results for VNs, releases, producers, characters, staff, tags, traits. |
-| `/[type][id]` (e.g. `/v17`) | Detail page for a single entity. |
-| `/[type][id]/rg` | Relation graph for a visual novel. |
-| `/u/c` | User collections — browse, search, sort & bulk-edit marked items. |
-| `/kobayashi` | A bespoke, music-player showcase of a user's VN collection. |
-| `/reset-password` | Password reset. |
+Each service's HTTP surface is specified in [`docs/api/`](docs/api/) — one OpenAPI 3.1
+document per service, plus the conventions they all share. The specs are browsable at
+**`/docs`** on the running stack.
 
 ## Running
 

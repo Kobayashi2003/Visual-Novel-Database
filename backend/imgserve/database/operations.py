@@ -1,3 +1,10 @@
+"""The image table: one row per mirrored file.
+
+A row is only written after the file is on disk, so a row without a file should
+not exist. Every function reports failure as None; the task layer distinguishes
+the causes.
+"""
+
 from imgserve import db
 from imgserve.utils import download_image_to_disk
 from .models import IMAGE_MODEL, ImageType

@@ -1,3 +1,5 @@
+"""Scheduled pg_dump of the imgserve database into DATA_FOLDER/backups."""
+
 import os
 import subprocess
 from urllib.parse import urlparse

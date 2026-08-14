@@ -152,6 +152,43 @@ handle_path /musicserve/* {
 	}
 }
 
+# The API specs and their browser, straight off disk. Gated like everything else:
+# the specs describe loopback-only admin and write routes, so they are not public.
+# Being behind the gate is also what makes the browser's "try it" work — the
+# session cookie rides along, so a request from the page is a real, authenticated
+# request, and a route outside a prefix's allowlist answers 403 exactly as it
+# would for the frontend.
+handle_path /docs* {
+	route {
+		# forward_auth written out, so a rejected probe can answer two ways. A
+		# browser navigation gets the login page — the access token lasts 30
+		# minutes, so arriving here signed out is routine, and a raw 401 body is
+		# something the visitor cannot act on. Anything else (the viewer's own
+		# fetches for the specs) keeps the JSON error it knows how to report.
+		@vndb_docs_page header Accept *text/html*
+		reverse_proxy {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+			method GET
+			rewrite /auth/verify
+			header_up X-Forwarded-Method {method}
+			header_up X-Forwarded-Uri {uri}
+
+			@vndb_docs_pass status 2xx
+			handle_response @vndb_docs_pass {
+				request_header X-User-Id {rp.header.X-User-Id}
+			}
+			@vndb_docs_deny status 401
+			handle_response @vndb_docs_deny {
+				redir @vndb_docs_page /visual-novel-database/login?next=/docs/ 302
+				header Content-Type application/json
+				respond `{"error":"unauthorized","message":"Not signed in."}` 401
+			}
+		}
+		root * {$API_DOCS_FOLDER:./docs/api}
+		try_files {path} /index.html
+		file_server
+	}
+}
+
 # Next.js, under the basePath baked in at build time — so `handle`, not
 # handle_path: the prefix must survive. The bare prefix is matched too because
 # Next has trailingSlash off and 308s /visual-novel-database/ to

@@ -1,3 +1,10 @@
+"""ProcSpec: the declarative description of one child process.
+
+Name, command, environment, and the names of the children it depends on. The
+launchers build a list of these; Supervisor turns the dependency names into a
+start order.
+"""
+
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 

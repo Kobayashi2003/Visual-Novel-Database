@@ -50,13 +50,7 @@ def array_jsonb_match(column: Any, key: str, value: Any) -> BinaryExpression:
     ).params({param_key: key, param_value: f"%{value}%"})
 
 def array_string_match(column: Any, value: str) -> BinaryExpression:
-    """
-    Create a filter for matching a value in an ARRAY(String) column.
-
-    :param column: The SQLAlchemy column object (ARRAY(String) type)
-    :param value: The value to match against
-    :return: An SQLAlchemy exists clause for filtering
-    """
+    """Match one value inside an ARRAY(String) column, as an EXISTS clause."""
     param_value = generate_unique_param_name("value")
     return exists(
         select(1)
@@ -128,13 +122,10 @@ def array_jsonb_tag_match(column: Any, value: str, max_spoiler: int,
     return conditions[0] if len(conditions) == 1 else or_(*conditions)
 
 def process_multi_value_expression(expression: str, value_processor: Callable[[str], BinaryExpression]) -> BinaryExpression:
-    """
-    Process a multi-value expression with OR/AND logic and parentheses using two stacks.
-
-    :param expression: The input expression (e.g., "value1,value2+(value3,value4)")
-    :param value_processor: A function that takes a string value and returns a SQLAlchemy filter condition
-    :return: A single SQLAlchemy filter condition
-    """
+    """Fold `value1,value2+(value3,value4)` into one condition — `,` is OR, `+`
+    is AND, parentheses group. `value_processor` turns a single term into a
+    condition; this function only combines them, using an operator and a value
+    stack. Raises ValueError if the expression is malformed."""
     if not validate_logical_expression(expression):
         raise ValueError(f"Invalid expression: {expression}")
 
@@ -205,12 +196,7 @@ def create_comparison_filter(field: Any, value: str, value_parser: Callable[[str
 
 
 def parse_released(value: str) -> str:
-    """
-    Parse the released date string.
-
-    :param value: A string representing the release date in YYYY, YYYY-MM, or YYYY-MM-DD format
-    :return: A normalized date string in YYYY-MM-DD format
-    """
+    """YYYY / YYYY-MM / YYYY-MM-DD → YYYY-MM-DD, padding the missing parts."""
     patterns = [
         (r'^(\d{4})$', r'\1-01-01'),  # YYYY format
         (r'^(\d{4})-(\d{2})$', r'\1-\2-01'),  # YYYY-MM format
@@ -230,12 +216,7 @@ def parse_released(value: str) -> str:
     raise ValueError(f"Invalid release date format: {value}. Use YYYY, YYYY-MM, or YYYY-MM-DD format.")
 
 def parse_resolution(value: str) -> tuple[int, int]:
-    """
-    Parse the resolution string.
-
-    :param value: A string representing the resolution in the format "WIDTHxHEIGHT"
-    :return: A tuple of (width, height)
-    """
+    """"WIDTHxHEIGHT" → (width, height)."""
     pattern = r'^(\d+)x(\d+)$'
     match = re.match(pattern, value)
     if match:
@@ -244,12 +225,7 @@ def parse_resolution(value: str) -> tuple[int, int]:
     raise ValueError(f"Invalid resolution format: {value}. Use 'WIDTHxHEIGHT' format (e.g., '640x480').")
 
 def parse_birthday(value: str) -> tuple[int, int]:
-    """
-    Parse the birthday string.
-
-    :param value: A string representing the birthday in the format "MM-DD"
-    :return: A tuple of (month, day)
-    """
+    """"MM-DD" → (month, day)."""
     pattern = r'^(\d{1,2})-(\d{1,2})$'
     match = re.match(pattern, value)
     if match:
@@ -269,13 +245,8 @@ def parse_cup(value: str) -> str:
     raise ValueError(f"Invalid cup size: {value}")
 
 def create_released_comparison_filter(value: str, model) -> BinaryExpression:
-    """
-    Create a filter for comparing released dates stored as strings.
-
-    :param value: The release date value to compare against in the format "OPERATOR DATE"
-    :param model: The SQLAlchemy model (VN or Release) to use for the filter
-    :return: An SQLAlchemy filter expression
-    """
+    """`value` is "OPERATOR DATE", e.g. ">=2010-01". Release dates are stored as
+    strings, so the comparison is lexicographic on the padded form."""
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
@@ -298,12 +269,8 @@ def create_released_comparison_filter(value: str, model) -> BinaryExpression:
     return operators[operator](model.released, normalized_date)
 
 def create_resolution_comparison_filter(value: str) -> BinaryExpression:
-    """
-    Create a filter for comparing resolutions stored as strings in the format "[WIDTH,HEIGHT]".
-
-    :param value: The resolution value to compare against in the format "OPERATORWIDTHxHEIGHT"
-    :return: An SQLAlchemy filter expression
-    """
+    """`value` is "OPERATORWIDTHxHEIGHT", e.g. ">=800x600"; the column holds
+    "[WIDTH,HEIGHT]", so both sides are compared numerically per axis."""
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
@@ -346,12 +313,8 @@ def create_resolution_comparison_filter(value: str) -> BinaryExpression:
     )
 
 def create_resolution_aspect_comparison_filter(value: str) -> BinaryExpression:
-    """
-    Create a filter for comparing resolutions and aspect ratios stored as strings in the format "[WIDTH,HEIGHT]".
-
-    :param value: The resolution value to compare against in the format "OPERATORWIDTHxHEIGHT"
-    :return: An SQLAlchemy filter expression
-    """
+    """As create_resolution_comparison_filter, but the comparison also has to
+    hold for the aspect ratio, not only the pixel counts."""
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
@@ -367,11 +330,10 @@ def create_resolution_aspect_comparison_filter(value: str) -> BinaryExpression:
     extracted_width = func.cast(func.split_part(resolution_without_brackets, ',', 1), Integer)
     extracted_height = func.cast(func.split_part(resolution_without_brackets, ',', 2), Integer)
 
-    # Calculate aspect ratios
     given_aspect_ratio = width / height
     stored_aspect_ratio = func.cast(extracted_width, Float) / func.cast(extracted_height, Float)
 
-    # Define a small tolerance for floating-point comparisons
+    # Both ratios are floats; an exact == would miss 4:3 stored as 800x600.
     tolerance = 0.0001
 
     aspect_ratio_match = func.abs(stored_aspect_ratio - given_aspect_ratio) < tolerance
@@ -416,12 +378,7 @@ def create_resolution_aspect_comparison_filter(value: str) -> BinaryExpression:
     )
 
 def create_birthday_comparison_filter(value: str) -> BinaryExpression:
-    """
-    Create a filter for comparing birthdays stored as strings in the format "[MM,DD]".
-
-    :param value: The birthday value to compare against in the format "OPERATOR MM-DD"
-    :return: An SQLAlchemy filter expression
-    """
+    """`value` is "OPERATOR MM-DD"; the column holds "[MM,DD]"."""
 
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
@@ -464,13 +421,8 @@ def create_birthday_comparison_filter(value: str) -> BinaryExpression:
     )
 
 def create_cup_comparison_filter(value: str) -> BinaryExpression:
-    """
-    Create a filter for comparing cup sizes stored as strings.
-
-    :param value: The cup size value to compare against in the format "OPERATOR SIZE"
-    :param model: The SQLAlchemy model (Character) to use for the filter
-    :return: An SQLAlchemy filter expression
-    """
+    """`value` is "OPERATOR SIZE", e.g. ">=C". Cup sizes are single letters, so
+    they are ranked by an explicit order rather than compared as strings."""
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
@@ -529,13 +481,7 @@ def create_gender_match_filter(value: str, spoil: bool = False) -> BinaryExpress
 
 
 def create_sex_match_filter(value: str, spoil: bool = False) -> BinaryExpression:
-    """
-    Create a filter for matching character sex values.
-
-    :param value: The sex value to match
-    :param spoil: Whether match spoil_sex or normal_sex
-    :return: An SQLAlchemy filter expression
-    """
+    """`spoil` selects the spoiler sex over the apparent one."""
     index = 1 if spoil else 0
     return and_(
         Character.sex.isnot(None),

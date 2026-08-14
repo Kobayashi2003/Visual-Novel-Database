@@ -1,3 +1,10 @@
+"""Tasks for the entities reachable from one entity.
+
+`/vns/v17/characters` and its siblings. Which pairs exist is fixed per type, and
+an unsupported pair raises rather than returning empty: the route for it is never
+registered, so reaching here with one is a bug, not user input.
+"""
+
 from typing import Any, Callable
 
 from vndb.search import (

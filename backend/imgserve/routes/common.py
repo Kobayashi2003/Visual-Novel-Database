@@ -1,3 +1,11 @@
+"""Route-layer helpers, and the cache-miss path.
+
+`task_response` turns a task outcome into a status code (see docs/api/README.md).
+`serve_or_fetch_image` is the rest: a hit is sent straight off disk, and a miss is
+downloaded under a single-flight lock, so a page requesting the same image forty
+times triggers one fetch. Requesting one variant also queues its sibling.
+"""
+
 import os
 
 from flask import abort, jsonify, send_file

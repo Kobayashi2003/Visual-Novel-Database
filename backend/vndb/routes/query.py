@@ -1,3 +1,15 @@
+"""The site-facing read API: `/v17`, `/v`, `/v17/rg`.
+
+One path segment carries both the entity type and, optionally, the id, which is
+what lets the frontend build a URL from a VNDB id directly. Reads are
+freshness-aware by default (see search/both); `from` pins the source, and the
+operator-set QUERY_MODE overrides both.
+
+Because these routes sit at the root they also catch anything the other
+blueprints did not claim, so a bad path reports an unknown resource type rather
+than a 404.
+"""
+
 from flask import Blueprint, abort, jsonify, request
 from vndb.utils.ids import formatId, TYPE_BY_PREFIX
 from vndb.tasks.resources import (
@@ -52,8 +64,9 @@ def handle_query(query):
 
     params = request.args.to_dict()
 
+    # One character is the type prefix on its own — "/v" — so it is a search;
+    # anything longer carries an id, "/v17".
     if len(query) == 1:
-        # Handle search for a specific type
         page = parse_int(params.pop('page', None), 1, 1)
         limit = parse_int(params.pop('limit', None), 20, 1, 100)
         sort = params.pop('sort', 'id')
@@ -76,7 +89,6 @@ def handle_query(query):
             True, resource_type, params, response_size, page, limit, sort, reverse, count)
 
     elif len(query) > 1:
-        # Handle get by ID
         try:
             int(query[1:])
         except ValueError:

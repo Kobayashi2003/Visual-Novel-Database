@@ -1,3 +1,10 @@
+"""Route-layer helpers: parameter parsing, and task envelope to HTTP.
+
+`task_response` is where a task's `{status: ...}` becomes a status code and the
+field is dropped from the body, the one place the internal envelope and the HTTP
+contract meet. See docs/api/README.md.
+"""
+
 from flask import abort, jsonify
 
 from vndb.errors import http_error_code

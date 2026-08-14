@@ -1,3 +1,15 @@
+"""Syntax check for the multi-value filter expressions used by search.
+
+A filter value like `Maid,Tsundere+(Comedy,Drama)` combines terms with `,` for OR
+and `+` for AND, with parentheses to group. Both the local and the remote filter
+builders evaluate such an expression themselves; this module only answers whether
+it is well formed, so an invalid one is rejected before either builder runs.
+
+    expression ::= term (',' term)*
+    term       ::= factor ('+' factor)*
+    factor     ::= '(' expression ')' | TERM
+"""
+
 from enum import Enum
 import re
 
@@ -36,24 +48,21 @@ class Parser:
         self.current_token = tokens[0]
 
     def advance(self) -> Token:
-        """Advance to the next token."""
         self.current += 1
         if self.current < len(self.tokens):
             self.current_token = self.tokens[self.current]
         return self.current_token
 
     def peek(self) -> Token:
-        """Look at the next token without consuming it."""
         if self.current + 1 < len(self.tokens):
             return self.tokens[self.current + 1]
         return self.tokens[-1]
 
     def check(self, type: TokenType) -> bool:
-        """Check if the current token is of the given type."""
         return self.current_token.type == type
 
     def match(self, type: TokenType) -> Token:
-        """Match and consume the current token if it's of the given type."""
+        """Consume the current token, or raise ParserError if it is not `type`."""
         if self.check(type):
             return self.advance()
         raise ParserError(
@@ -62,24 +71,11 @@ class Parser:
         )
 
     def validate_expression(self) -> bool:
-        """
-        Validate the syntax of the expression.
-
-        Grammar:
-        expression ::= term (',' term)*
-        term      ::= factor ('+' factor)*
-        factor    ::= '(' expression ')'
-                  |  term
-
-        Returns:
-            bool: True if the expression is syntactically valid
-
-        Raises:
-            ParserError: If the expression is invalid
-        """
+        """Whether the whole token stream parses. Never raises."""
         try:
             self._validate_expression()
-            # Check if we've reached the end of input
+            # Parsing an expression stops at the first token it cannot use, so a
+            # trailing "b)" only shows up as input left over at the end.
             if not self.check(TokenType.EOF):
                 raise ParserError(
                     f"Unexpected token after expression: {self.current_token.type.value}",
@@ -90,7 +86,6 @@ class Parser:
             return False
 
     def _validate_expression(self) -> None:
-        """Validate an expression (OR level)."""
         self._validate_term()
 
         while self.check(TokenType.OR):
@@ -98,7 +93,6 @@ class Parser:
             self._validate_term()
 
     def _validate_term(self) -> None:
-        """Validate a term (AND level)."""
         self._validate_factor()
 
         while self.check(TokenType.AND):
@@ -106,7 +100,6 @@ class Parser:
             self._validate_factor()
 
     def _validate_factor(self) -> None:
-        """Validate a factor (parenthesized expression or term)."""
         if self.check(TokenType.LPAREN):
             self.match(TokenType.LPAREN)
             self._validate_expression()
@@ -121,16 +114,9 @@ class Parser:
 
 
 def normalize_expression(expression: str) -> str:
-    """
-    Normalize the expression by removing spaces around operators while preserving spaces within terms.
-
-    Args:
-        expression: The input expression to normalize
-
-    Returns:
-        The normalized expression
-    """
-    # Remove spaces around operators and parentheses
+    """Strip spaces around the operators and parentheses only — a term is allowed
+    to contain spaces, so `Gang Rape + Netorare` must keep the one inside the
+    term while losing the ones around `+`."""
     normalized = re.sub(r'\s*\+\s*', '+', expression)
     normalized = re.sub(r'\s*,\s*', ',', normalized)
     normalized = re.sub(r'\s*\(\s*', '(', normalized)
@@ -139,48 +125,33 @@ def normalize_expression(expression: str) -> str:
     return normalized
 
 def tokenize(expression: str) -> list[Token]:
-    """
-    Tokenize the input expression into a list of tokens.
-
-    Args:
-        expression: The input string to tokenize
-
-    Returns:
-        list of Token objects
-
-    Raises:
-        ParserError: If invalid characters are found
-    """
+    """Raises TokenizeError on any character the grammar has no token for."""
     tokens = []
     position = 0
 
-    # Define token patterns
     patterns = {
         'LPAREN': r'\(',
         'RPAREN': r'\)',
         'AND': r'\+',
         'OR': r',',
-        'TERM': r'[^\(\)\+,]+',  # Match any characters except ()+ and ,
+        'TERM': r'[^\(\)\+,]+',
     }
-
-    # Create regex pattern
     pattern = '|'.join(f'(?P<{k}>{v})' for k, v in patterns.items())
     regex = re.compile(pattern)
 
-    # Find all matches
     for match in regex.finditer(expression):
         token_type = match.lastgroup
         token_value = match.group(token_type)
         start_pos = match.start()
 
-        # Skip whitespace
+        # finditer skips what it cannot match, so a gap between the last token
+        # and this one is the only evidence of an unrecognised character.
         if start_pos > position:
             raise TokenizeError(f"Invalid characters at position {position}", position)
 
         tokens.append(Token(TokenType[token_type], token_value, start_pos))
         position = match.end()
 
-    # Check for remaining characters
     if position < len(expression):
         raise TokenizeError(f"Invalid characters at position {position}", position)
 
@@ -188,15 +159,8 @@ def tokenize(expression: str) -> list[Token]:
     return tokens
 
 def validate_logical_expression(expression: str) -> bool:
-    """
-    Validate the syntax of a logical expression.
-
-    Args:
-        expression: The input expression to validate
-
-    Returns:
-        bool: True if the expression is syntactically valid
-    """
+    """The module's entry point: True when `expression` is well formed. Swallows
+    both failure modes, so callers get a boolean rather than two exceptions."""
     try:
         normalized = normalize_expression(expression)
         tokens = tokenize(normalized)
@@ -209,7 +173,6 @@ def validate_logical_expression(expression: str) -> bool:
 
 
 if __name__ == "__main__":
-    # Test cases
     test_cases = [
         "Gang Rape + Unavoidable Rape", # Valid
         "(Gang Rape , Unavoidable Rape) + Netorare", # Valid
