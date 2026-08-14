@@ -61,7 +61,7 @@ def handle_query(query):
         count = parse_bool(params.pop('count', None), True)
 
         search_from = params.pop('from', '')
-        response_size = params.pop('size', 'large')
+        response_size = params.pop('response_size', 'large')
 
         if search_from == 'remote' or QUERY_MODE == 'remote':
             return execute_task(search_resources_task,
@@ -83,7 +83,7 @@ def handle_query(query):
             abort(400, description="Invalid ID format")
 
         search_from = params.pop('from', '')
-        response_size = params.pop('size', 'large')
+        response_size = params.pop('response_size', 'large')
 
         if search_from == 'remote' or QUERY_MODE == 'remote':
             return execute_task(search_resources_task,

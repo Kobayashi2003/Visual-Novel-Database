@@ -5,7 +5,12 @@ from imgserve import celery
 from imgserve.database import exists, create, update, delete
 from imgserve.utils import download_image_to_disk, download_images, get_image_path
 from imgserve.logger import logger
-from .common import SUCCESS, FAILED, ERROR
+from .common import SUCCESS, NOT_FOUND, CONFLICT, UNAVAILABLE, ERROR
+
+
+# create()/update()/delete() all report failure as None, which conflates several
+# causes. Each task below asks exists() first, so the outcome it returns says
+# which one actually happened.
 
 
 @celery.task
@@ -21,49 +26,42 @@ def ensure_image_task(type: str, id: int) -> Dict[str, str]:
         if os.path.exists(get_image_path(type, id)):
             return SUCCESS
         if exists(type, id):
-            ok = download_image_to_disk(type, id)
-            return SUCCESS if ok else FAILED
-        result = create(type, id)
+            return SUCCESS if download_image_to_disk(type, id) else UNAVAILABLE
+        return SUCCESS if create(type, id) else UNAVAILABLE
     except Exception:
         logger.exception(f"ensure_image_task failed for {type}/{id}")
         return ERROR
-    return SUCCESS if result else FAILED
 
 
 @celery.task
 def create_image_task(type: str, id: int) -> Dict[str, str]:
     try:
-        result = create(type, id)
+        if exists(type, id):
+            return CONFLICT
+        return SUCCESS if create(type, id) else UNAVAILABLE
     except Exception:
         logger.exception(f"create_image_task failed for {type}/{id}")
         return ERROR
-    if not result:
-        return FAILED
-    return SUCCESS
 
 
 @celery.task
 def update_image_task(type: str, id: int) -> Dict[str, str]:
     try:
-        result = update(type, id)
+        if not exists(type, id):
+            return NOT_FOUND
+        return SUCCESS if update(type, id) else UNAVAILABLE
     except Exception:
         logger.exception(f"update_image_task failed for {type}/{id}")
         return ERROR
-    if not result:
-        return FAILED
-    return SUCCESS
 
 
 @celery.task
 def delete_image_task(type: str, id: int) -> Dict[str, str]:
     try:
-        result = delete(type, id)
+        return SUCCESS if delete(type, id) else NOT_FOUND
     except Exception:
         logger.exception(f"delete_image_task failed for {type}/{id}")
         return ERROR
-    if not result:
-        return FAILED
-    return SUCCESS
 
 
 @celery.task

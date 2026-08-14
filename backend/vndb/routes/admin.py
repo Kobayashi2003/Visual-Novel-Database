@@ -29,7 +29,8 @@ def set_query_mode():
     data = request.get_json(force=True, silent=True) or {}
     mode = data.get('mode', '')
     if mode not in _VALID_MODES:
-        return jsonify(error=f"Invalid mode. Must be one of: {', '.join(_VALID_MODES)}"), 400
+        return jsonify(error="invalid_request",
+                       message=f"Mode must be one of: {', '.join(_VALID_MODES)}."), 400
     query_module.QUERY_MODE = mode
     return jsonify(mode=mode)
 
@@ -39,14 +40,14 @@ def set_query_mode():
 @admin_bp.route('/backfill', methods=['POST'])
 def trigger_backfill():
     if _backfill_status['running']:
-        return jsonify(error='A backfill is already running'), 409
+        return jsonify(error="conflict", message="A backfill is already running."), 409
 
     data = request.get_json(force=True, silent=True) or {}
     resource_type = data.get('resource_type', '').strip()
     field = data.get('field', '').strip()
 
     if not resource_type or not field:
-        return jsonify(error='resource_type and field are required'), 400
+        return jsonify(error="invalid_request", message="resource_type and field are required."), 400
 
     def _run():
         with app.app_context():

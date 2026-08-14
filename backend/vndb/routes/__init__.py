@@ -2,17 +2,8 @@ from flask import Blueprint, jsonify
 
 api_bp = Blueprint('api', __name__, url_prefix='/')
 
-@api_bp.errorhandler(400)
-def bad_request(e):
-    return jsonify(error=str(e.description)), 400
-
-@api_bp.errorhandler(404)
-def not_found(e):
-    return jsonify(error="Resource not found"), 404
-
-@api_bp.errorhandler(500)
-def server_error(e):
-    return jsonify(error="An unexpected error occurred"), 500
+# Errors are left to the app-level handler in vndb/__init__.py, which puts every
+# HTTPException on the shared {error, message} shape.
 
 @api_bp.route('', methods=['GET', 'TRACE'])
 def hello_world():

@@ -26,17 +26,18 @@ export interface PaginationParams {
 
 export interface PaginatedResponse<T> {
   results: T[]
-  status: string
-  source: string
   more: boolean
   count: number
+  // Which side answered ("local" / "remote"). Absent on a page synthesized
+  // from a 404, which came from neither.
+  source?: string
 }
 
 // VNDB-specific query params. `from` selects the data source ("local" vs the
-// upstream VNDB), `size` toggles the large/small payload variant.
+// upstream VNDB), `response_size` toggles the large/small payload variant.
 export interface VNDBQueryParams extends PaginationParams {
   from?: 'local' | 'remote'
-  size?: 'small' | 'large'
+  response_size?: 'small' | 'large'
   [key: string]: unknown
 }
 
@@ -48,8 +49,8 @@ export interface MarksQueryParams extends PaginationParams {
 
 
 /* ─── Full entity payloads ─────────────────────────────────────────────────── */
-// Shape returned by `size=large` endpoints. These are the ones used by detail
-// pages.
+// Shape returned by `response_size=large` endpoints. These are the ones used by
+// detail pages.
 
 export interface VN {
   id: string
@@ -385,7 +386,7 @@ export interface Trait {
 
 
 /* ─── Small entity payloads ────────────────────────────────────────────────── */
-// Shape returned by `size=small` endpoints — enough to render a card or list
+// Shape returned by `response_size=small` endpoints — enough to render a card or list
 // row, but stripped of heavy nested data.
 
 export interface VN_Small {

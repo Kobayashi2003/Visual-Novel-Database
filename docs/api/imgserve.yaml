@@ -139,6 +139,13 @@ paths:
           $ref: "#/components/responses/TaskOutcome"
         "202":
           $ref: "#/components/responses/TaskQueued"
+        "409":
+          description: "`conflict` — already on record. Use `PUT` to refetch it."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          $ref: "#/components/responses/UpstreamFailed"
     put:
       tags: [maintenance]
       summary: Re-download one image
@@ -148,6 +155,10 @@ paths:
           $ref: "#/components/responses/TaskOutcome"
         "202":
           $ref: "#/components/responses/TaskQueued"
+        "404":
+          $ref: "#/components/responses/NoSuchImage"
+        "503":
+          $ref: "#/components/responses/UpstreamFailed"
     delete:
       tags: [maintenance]
       summary: Drop one image from the cache
@@ -156,6 +167,8 @@ paths:
           $ref: "#/components/responses/TaskOutcome"
         "202":
           $ref: "#/components/responses/TaskQueued"
+        "404":
+          $ref: "#/components/responses/NoSuchImage"
 
   /:
     post:
@@ -195,11 +208,32 @@ paths:
     get:
       tags: [maintenance]
       summary: Result of a queued task
+      description: |
+        Once the task has finished this answers exactly as the synchronous call
+        would have, including its status code — so a task that ended in
+        `NOT_FOUND` is reported as `404` here too.
       responses:
         "200":
           $ref: "#/components/responses/TaskOutcome"
         "202":
           description: Still running.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    description: Celery's own state name, e.g. `PENDING`.
+        "404":
+          $ref: "#/components/responses/NoSuchImage"
+        "409":
+          description: "`conflict` — the task found the image already on record."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          $ref: "#/components/responses/UpstreamFailed"
     post:
       tags: [maintenance]
       summary: Revoke a queued task
@@ -207,7 +241,10 @@ paths:
         "200":
           description: Revoked.
         "404":
-          description: No such task.
+          description: No task with that id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
 components:
   parameters:
@@ -250,18 +287,13 @@ components:
   responses:
     TaskOutcome:
       description: |
-        The outcome of a maintenance task. These routes still report success in
-        the body rather than the status code; see ./README.md — they are slated
-        to move onto status codes together with vndb, which shares this shape.
+        The task succeeded. The body is empty unless the route has something to
+        report (batch operations return a per-url map).
       content:
         application/json:
           schema:
             type: object
-            required: [status]
             properties:
-              status:
-                type: string
-                enum: [SUCCESS, FAILED, NOT_FOUND, ERROR]
               results:
                 description: Present on batch operations.
     TaskQueued:
@@ -273,3 +305,16 @@ components:
             required: [task_id]
             properties:
               task_id: { type: string }
+    NoSuchImage:
+      description: "`not_found` — no such image on record."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    UpstreamFailed:
+      description: |
+        `unavailable` — the fetch from t.vndb.org did not succeed. Treated as
+        transient: a genuinely absent upstream image is not distinguished,
+        because both cases want the same client behaviour.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

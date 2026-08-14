@@ -2,6 +2,7 @@ import os
 
 from flask import abort, jsonify, send_file
 
+from imgserve.errors import http_error_code
 from imgserve.database import exists, create
 from imgserve.utils import (
     download_image_to_disk, get_image_path,
@@ -20,13 +21,40 @@ VARIANT_PAIR = {'cv': 'cv.t', 'cv.t': 'cv', 'sf': 'sf.t', 'sf.t': 'sf'}
 SINGLE_FLIGHT_WAIT = 15.0
 
 
+# Tasks report their outcome in a `status` field so a Celery result can carry it
+# across the process boundary. The HTTP layer is where that becomes a status
+# code: the body never repeats it, because two sources of truth drift apart.
+TASK_STATUS_CODE = {
+    'SUCCESS': 200,
+    'NOT_FOUND': 404,
+    'CONFLICT': 409,
+    'UNAVAILABLE': 503,
+    'ERROR': 500,
+}
+
+_STATUS_MESSAGE = {
+    404: "No such image.",
+    409: "That image is already on record.",
+    503: "The upstream fetch did not succeed.",
+    500: "Internal error",
+}
+
+def task_response(result):
+    """Turn a task outcome into a response. On failure the body becomes the
+    standard `{error, message}`; on success `status` is stripped."""
+    status = result.get('status', 'SUCCESS') if isinstance(result, dict) else 'SUCCESS'
+    code = TASK_STATUS_CODE.get(status, 200)
+    if code != 200:
+        return jsonify(error=http_error_code(code), message=_STATUS_MESSAGE[code]), code
+    # A new dict rather than a pop: SUCCESS and friends are module-level
+    # singletons, and mutating one here would corrupt every later use of it.
+    body = {k: v for k, v in result.items() if k != 'status'} if isinstance(result, dict) else result
+    return jsonify(body), 200
+
 def execute_task(task, sync=False, *args, **kwargs):
-    if sync:
-        result = task(*args, **kwargs)
-        return jsonify(result)
-    else:
-        task_result = task.delay(*args, **kwargs)
-        return jsonify({"task_id": task_result.id}), 202
+    if not sync:
+        return jsonify({"task_id": task.delay(*args, **kwargs).id}), 202
+    return task_response(task(*args, **kwargs))
 
 
 def send_cached_image(path):

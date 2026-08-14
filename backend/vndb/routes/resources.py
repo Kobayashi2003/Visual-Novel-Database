@@ -130,10 +130,10 @@ class BaseResourceBlueprint(ABC):
     def edit_resources(self):
         update_datas = request.json
         if not update_datas:
-            return jsonify({"error": "No update data provided"}), 400
+            return jsonify(error="invalid_request", message="No update data provided."), 400
 
         if not isinstance(update_datas, list):
-            return jsonify({"error": "Invalid format. Expected a list of updates"}), 400
+            return jsonify(error="invalid_request", message="Expected a list of updates."), 400
 
         sync = self.get_sync_param()
         return execute_task(edit_resources_task, sync, self.resource_type, update_datas)
@@ -141,7 +141,7 @@ class BaseResourceBlueprint(ABC):
     def edit_resource(self, id):
         update_data = request.json
         if not update_data:
-            return jsonify({"error": "No update data provided"}), 400
+            return jsonify(error="invalid_request", message="No update data provided."), 400
 
         sync = self.get_sync_param()
         return execute_task(edit_resource_task, sync, self.resource_type, id, update_data)

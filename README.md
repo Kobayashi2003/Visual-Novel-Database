@@ -17,29 +17,31 @@ a **Japanese translation layer** for tag/trait descriptions.
 
 ## Architecture
 
-<img src="assets/architecture.png" alt="Architecture" />
+<img src="docs/assets/architecture.png" alt="Architecture" />
 
 Caddy is the single public ingress. Each backend prefix exposes an explicit allowlist of the routes
 the frontend uses, and every allowlisted request is probed against `userserve /auth/verify` before it
 is forwarded — so **vndb, imgserve, transserve and musicserve contain no auth code at all**, and their
 admin and write routes stay reachable only on the loopback ports.
 
-> Editable source: [`assets/architecture.drawio`](assets/architecture.drawio) (VS Code Draw.io extension).
-> After editing, re-export to `assets/architecture.png`.
+> The rendered image is `architecture.png`, produced from
+> [`architecture.svg`](docs/assets/architecture.svg) — edit the SVG, then rasterise it at 1680×1420.
+> [`architecture.drawio`](docs/assets/architecture.drawio) carries the same diagram for editing in the
+> VS Code Draw.io extension; keep the two in step when either changes.
 
 ## Preview
 
 <table>
   <tr>
-    <td colspan="2"><img src="assets/01-home.png" alt="Home" /><br/><sub><b>Home</b> — recent releases, browsable by year/month</sub></td>
+    <td colspan="2"><img src="docs/assets/01-home.png" alt="Home" /><br/><sub><b>Home</b> — recent releases, browsable by year/month</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/02-browse.png" alt="Browse" /><br/><sub><b>Browse</b> — search grid with content-level filtering</sub></td>
-    <td width="50%"><img src="assets/03-vn-detail.png" alt="VN detail" /><br/><sub><b>VN detail</b> — tags, releases, staff &amp; cast</sub></td>
+    <td width="50%"><img src="docs/assets/02-browse.png" alt="Browse" /><br/><sub><b>Browse</b> — search grid with content-level filtering</sub></td>
+    <td width="50%"><img src="docs/assets/03-vn-detail.png" alt="VN detail" /><br/><sub><b>VN detail</b> — tags, releases, staff &amp; cast</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="assets/04-character-detail.png" alt="Character detail" /><br/><sub><b>Character detail</b> — traits &amp; appearances</sub></td>
-    <td width="50%"><img src="assets/05-relation-graph.png" alt="Relation graph" /><br/><sub><b>Relation graph</b> — interactive VN relations</sub></td>
+    <td width="50%"><img src="docs/assets/04-character-detail.png" alt="Character detail" /><br/><sub><b>Character detail</b> — traits &amp; appearances</sub></td>
+    <td width="50%"><img src="docs/assets/05-relation-graph.png" alt="Relation graph" /><br/><sub><b>Relation graph</b> — interactive VN relations</sub></td>
   </tr>
 </table>
 

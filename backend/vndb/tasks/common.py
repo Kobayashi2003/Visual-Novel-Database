@@ -11,17 +11,21 @@ NOT_FOUND = {'status': 'NOT_FOUND', 'results': None}
 NOT_FOUND_CACHE_TIMEOUT = 60
 
 def format_results(results: Any) -> dict[str, Any]:
-    if isinstance(results, db.Model):
-        return {'status': 'SUCCESS','results': convert_model_to_dict(results)}
-    elif isinstance(results, list) and all(isinstance(item, db.Model) for item in results):
-        return {'status': 'SUCCESS', 'results': [convert_model_to_dict(item) for item in results]}
-    elif isinstance(results, dict) and results.get('results'):
-        results['status'] = 'SUCCESS'
-        return results
-    elif results:
-        return {'status': 'SUCCESS','results': results}
+    """Wrap a task's return value in the status envelope.
 
-    return NOT_FOUND
+    A dict that already carries a `results` key is passed through rather than
+    nested a second level deep. Emptiness is tested with `is None`, not
+    truthiness: a search that matched nothing, or a delete that removed 0 rows,
+    is a successful answer of zero — only a missing value is NOT_FOUND."""
+    if results is None:
+        return dict(NOT_FOUND)
+    if isinstance(results, db.Model):
+        return {'status': 'SUCCESS', 'results': convert_model_to_dict(results)}
+    if isinstance(results, list) and all(isinstance(item, db.Model) for item in results):
+        return {'status': 'SUCCESS', 'results': [convert_model_to_dict(item) for item in results]}
+    if isinstance(results, dict) and 'results' in results:
+        return {**results, 'status': 'SUCCESS'}
+    return {'status': 'SUCCESS', 'results': results}
 
 def error_handler(func):
     @wraps(func)

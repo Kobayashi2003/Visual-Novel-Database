@@ -53,14 +53,17 @@ const fetchVNDB = async <T>(
 ): Promise<PaginatedResponse<T>> => {
   const queryString = new URLSearchParams(params as Record<string, string>).toString()
   const url = `${getBaseUrl("vndb")}/${endpoint}?${queryString}`
-  const data = await fetchJson<PaginatedResponse<T>>(url, { method: "GET", signal: abortSignal }, "HTTP")
-  if (data.status === "ERROR") throw new Error(`VNDB error! status: ${data.status}`)
-  if (data.status === "NOT_FOUND") {
-    data.results = []
-    data.more = false
-    data.count = 0
+  try {
+    const data = await fetchJson<PaginatedResponse<T>>(url, { method: "GET", signal: abortSignal }, "HTTP")
+    return processor ? processVNDBResponse(data, processor) : data
+  } catch (error) {
+    // vndb answers 404 when a query matches nothing. For a list that is an
+    // empty page, not a failure — only a single-item lookup treats it as one.
+    if (error instanceof ApiError && error.status === 404) {
+      return { results: [], more: false, count: 0 } as PaginatedResponse<T>
+    }
+    throw error
   }
-  return processor ? processVNDBResponse(data, processor) : data
 }
 
 const fetchVNDBById = async <T>(
@@ -71,10 +74,11 @@ const fetchVNDBById = async <T>(
 ): Promise<T> => {
   const queryString = new URLSearchParams(params as Record<string, string>).toString()
   const url = `${getBaseUrl("vndb")}/${endpoint}?${queryString}`
+  // A 404 propagates as an ApiError: for a lookup by id, "no such thing" is
+  // the failure the caller wants to hear about.
   const data = await fetchJson<PaginatedResponse<T>>(url, { method: "GET", signal: abortSignal }, "HTTP")
-  if (data.status === "ERROR" || data.status === "NOT_FOUND") throw new Error(`VNDB error! status: ${data.status}`)
-  const result: T = data.results[0]
-  if (!result) throw new Error(`VNDB error! status: ${data.status}`)
+  const result: T = data.results?.[0]
+  if (!result) throw new ApiError(`Not found: ${endpoint}`, 404)
   return processor ? processor(result) : result
 }
 
@@ -293,49 +297,49 @@ export const api = {
 
   /* VNDB: paginated, large */
   vn: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-    params.size = "large"; return fetchVNDB<VN>(`v`, params, processVNImages, abortSignal)
+    params.response_size = "large"; return fetchVNDB<VN>(`v`, params, processVNImages, abortSignal)
   },
   release: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-    params.size = "large"; return fetchVNDB<Release>(`r`, params, processReleaseImages, abortSignal)
+    params.response_size = "large"; return fetchVNDB<Release>(`r`, params, processReleaseImages, abortSignal)
   },
   producer: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-    params.size = "large"; return fetchVNDB<Producer>(`p`, params, undefined, abortSignal)
+    params.response_size = "large"; return fetchVNDB<Producer>(`p`, params, undefined, abortSignal)
   },
   character: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-    params.size = "large"; return fetchVNDB<Character>(`c`, params, processCharacterImages, abortSignal)
+    params.response_size = "large"; return fetchVNDB<Character>(`c`, params, processCharacterImages, abortSignal)
   },
   staff: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-    params.size = "large"; return fetchVNDB<Staff>(`s`, params, undefined, abortSignal)
+    params.response_size = "large"; return fetchVNDB<Staff>(`s`, params, undefined, abortSignal)
   },
   tag: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-    params.size = "large"; return fetchVNDB<Tag>(`g`, params, undefined, abortSignal)
+    params.response_size = "large"; return fetchVNDB<Tag>(`g`, params, undefined, abortSignal)
   },
   trait: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-    params.size = "large"; return fetchVNDB<Trait>(`i`, params, undefined, abortSignal)
+    params.response_size = "large"; return fetchVNDB<Trait>(`i`, params, undefined, abortSignal)
   },
 
   /* VNDB: single item by id, large */
   by_id: {
     vn: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "large"; return fetchVNDBById<VN>(`v${id}`, params, processVNImages, abortSignal)
+      params.response_size = "large"; return fetchVNDBById<VN>(`v${id}`, params, processVNImages, abortSignal)
     },
     release: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "large"; return fetchVNDBById<Release>(`r${id}`, params, processReleaseImages, abortSignal)
+      params.response_size = "large"; return fetchVNDBById<Release>(`r${id}`, params, processReleaseImages, abortSignal)
     },
     character: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "large"; return fetchVNDBById<Character>(`c${id}`, params, processCharacterImages, abortSignal)
+      params.response_size = "large"; return fetchVNDBById<Character>(`c${id}`, params, processCharacterImages, abortSignal)
     },
     producer: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "large"; return fetchVNDBById<Producer>(`p${id}`, params, undefined, abortSignal)
+      params.response_size = "large"; return fetchVNDBById<Producer>(`p${id}`, params, undefined, abortSignal)
     },
     staff: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "large"; return fetchVNDBById<Staff>(`s${id}`, params, undefined, abortSignal)
+      params.response_size = "large"; return fetchVNDBById<Staff>(`s${id}`, params, undefined, abortSignal)
     },
     tag: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "large"; return fetchVNDBById<Tag>(`g${id}`, params, undefined, abortSignal)
+      params.response_size = "large"; return fetchVNDBById<Tag>(`g${id}`, params, undefined, abortSignal)
     },
     trait: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "large"; return fetchVNDBById<Trait>(`i${id}`, params, undefined, abortSignal)
+      params.response_size = "large"; return fetchVNDBById<Trait>(`i${id}`, params, undefined, abortSignal)
     },
   },
 
@@ -345,10 +349,9 @@ export const api = {
   relationGraph: async (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal): Promise<RelationGraph> => {
     const queryString = new URLSearchParams(params as Record<string, string>).toString()
     const url = `${getBaseUrl("vndb")}/v${id}/rg${queryString ? `?${queryString}` : ""}`
-    const data = await fetchJson<{ status: string; results: RelationGraph }>(
+    const data = await fetchJson<{ results: RelationGraph }>(
       url, { method: "GET", signal: abortSignal }, "HTTP",
     )
-    if (data.status === "ERROR" || data.status === "NOT_FOUND") throw new Error(`VNDB error! status: ${data.status}`)
     const graph = data.results
     return { ...graph, nodes: graph.nodes.map(processGraphNodeImage) }
   },
@@ -356,80 +359,80 @@ export const api = {
   /* VNDB: small variants (list cards, autocomplete, …) */
   small: {
     vn: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "small"; return fetchVNDB<VN_Small>(`v`, params, processSmallVNImages, abortSignal)
+      params.response_size = "small"; return fetchVNDB<VN_Small>(`v`, params, processSmallVNImages, abortSignal)
     },
     release: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "small"; return fetchVNDB<Release_Small>(`r`, params, undefined, abortSignal)
+      params.response_size = "small"; return fetchVNDB<Release_Small>(`r`, params, undefined, abortSignal)
     },
     character: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "small"; return fetchVNDB<Character_Small>(`c`, params, processSmallCharacterImages, abortSignal)
+      params.response_size = "small"; return fetchVNDB<Character_Small>(`c`, params, processSmallCharacterImages, abortSignal)
     },
     producer: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "small"; return fetchVNDB<Producer_Small>(`p`, params, undefined, abortSignal)
+      params.response_size = "small"; return fetchVNDB<Producer_Small>(`p`, params, undefined, abortSignal)
     },
     staff: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "small"; return fetchVNDB<Staff_Small>(`s`, params, undefined, abortSignal)
+      params.response_size = "small"; return fetchVNDB<Staff_Small>(`s`, params, undefined, abortSignal)
     },
     tag: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "small"; return fetchVNDB<Tag_Small>(`g`, params, undefined, abortSignal)
+      params.response_size = "small"; return fetchVNDB<Tag_Small>(`g`, params, undefined, abortSignal)
     },
     trait: (params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-      params.size = "small"; return fetchVNDB<Trait_Small>(`i`, params, undefined, abortSignal)
+      params.response_size = "small"; return fetchVNDB<Trait_Small>(`i`, params, undefined, abortSignal)
     },
 
     by_id: {
       vn: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        params.size = "small"; return fetchVNDBById<VN_Small>(`v${id}`, params, processSmallVNImages, abortSignal)
+        params.response_size = "small"; return fetchVNDBById<VN_Small>(`v${id}`, params, processSmallVNImages, abortSignal)
       },
       release: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        params.size = "small"; return fetchVNDBById<Release_Small>(`r${id}`, params, undefined, abortSignal)
+        params.response_size = "small"; return fetchVNDBById<Release_Small>(`r${id}`, params, undefined, abortSignal)
       },
       character: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        params.size = "small"; return fetchVNDBById<Character_Small>(`c${id}`, params, processSmallCharacterImages, abortSignal)
+        params.response_size = "small"; return fetchVNDBById<Character_Small>(`c${id}`, params, processSmallCharacterImages, abortSignal)
       },
       producer: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        params.size = "small"; return fetchVNDBById<Producer_Small>(`p${id}`, params, undefined, abortSignal)
+        params.response_size = "small"; return fetchVNDBById<Producer_Small>(`p${id}`, params, undefined, abortSignal)
       },
       staff: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        params.size = "small"; return fetchVNDBById<Staff_Small>(`s${id}`, params, undefined, abortSignal)
+        params.response_size = "small"; return fetchVNDBById<Staff_Small>(`s${id}`, params, undefined, abortSignal)
       },
       tag: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        params.size = "small"; return fetchVNDBById<Tag_Small>(`g${id}`, params, undefined, abortSignal)
+        params.response_size = "small"; return fetchVNDBById<Tag_Small>(`g${id}`, params, undefined, abortSignal)
       },
       trait: (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        params.size = "small"; return fetchVNDBById<Trait_Small>(`i${id}`, params, undefined, abortSignal)
+        params.response_size = "small"; return fetchVNDBById<Trait_Small>(`i${id}`, params, undefined, abortSignal)
       },
     },
 
     // Batched fetch — short-circuits on empty lists so callers don't have to.
     byIds: {
       vn: (ids: number[], params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        if (!ids.length) return Promise.resolve({ results: [] as VN_Small[], status: 'OK', source: 'local', more: false, count: 0 })
-        return fetchVNDB<VN_Small>(`v`, { ...params, size: "small", id: ids.map(id => `v${id}`).join(",") }, processSmallVNImages, abortSignal)
+        if (!ids.length) return Promise.resolve({ results: [] as VN_Small[], more: false, count: 0 })
+        return fetchVNDB<VN_Small>(`v`, { ...params, response_size: "small", id: ids.map(id => `v${id}`).join(",") }, processSmallVNImages, abortSignal)
       },
       release: (ids: number[], params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        if (!ids.length) return Promise.resolve({ results: [] as Release_Small[], status: 'OK', source: 'local', more: false, count: 0 })
-        return fetchVNDB<Release_Small>(`r`, { ...params, size: "small", id: ids.map(id => `r${id}`).join(",") }, undefined, abortSignal)
+        if (!ids.length) return Promise.resolve({ results: [] as Release_Small[], more: false, count: 0 })
+        return fetchVNDB<Release_Small>(`r`, { ...params, response_size: "small", id: ids.map(id => `r${id}`).join(",") }, undefined, abortSignal)
       },
       character: (ids: number[], params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        if (!ids.length) return Promise.resolve({ results: [] as Character_Small[], status: 'OK', source: 'local', more: false, count: 0 })
-        return fetchVNDB<Character_Small>(`c`, { ...params, size: "small", id: ids.map(id => `c${id}`).join(",") }, processSmallCharacterImages, abortSignal)
+        if (!ids.length) return Promise.resolve({ results: [] as Character_Small[], more: false, count: 0 })
+        return fetchVNDB<Character_Small>(`c`, { ...params, response_size: "small", id: ids.map(id => `c${id}`).join(",") }, processSmallCharacterImages, abortSignal)
       },
       producer: (ids: number[], params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        if (!ids.length) return Promise.resolve({ results: [] as Producer_Small[], status: 'OK', source: 'local', more: false, count: 0 })
-        return fetchVNDB<Producer_Small>(`p`, { ...params, size: "small", id: ids.map(id => `p${id}`).join(",") }, undefined, abortSignal)
+        if (!ids.length) return Promise.resolve({ results: [] as Producer_Small[], more: false, count: 0 })
+        return fetchVNDB<Producer_Small>(`p`, { ...params, response_size: "small", id: ids.map(id => `p${id}`).join(",") }, undefined, abortSignal)
       },
       staff: (ids: number[], params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        if (!ids.length) return Promise.resolve({ results: [] as Staff_Small[], status: 'OK', source: 'local', more: false, count: 0 })
-        return fetchVNDB<Staff_Small>(`s`, { ...params, size: "small", id: ids.map(id => `s${id}`).join(",") }, undefined, abortSignal)
+        if (!ids.length) return Promise.resolve({ results: [] as Staff_Small[], more: false, count: 0 })
+        return fetchVNDB<Staff_Small>(`s`, { ...params, response_size: "small", id: ids.map(id => `s${id}`).join(",") }, undefined, abortSignal)
       },
       tag: (ids: number[], params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        if (!ids.length) return Promise.resolve({ results: [] as Tag_Small[], status: 'OK', source: 'local', more: false, count: 0 })
-        return fetchVNDB<Tag_Small>(`g`, { ...params, size: "small", id: ids.map(id => `g${id}`).join(",") }, undefined, abortSignal)
+        if (!ids.length) return Promise.resolve({ results: [] as Tag_Small[], more: false, count: 0 })
+        return fetchVNDB<Tag_Small>(`g`, { ...params, response_size: "small", id: ids.map(id => `g${id}`).join(",") }, undefined, abortSignal)
       },
       trait: (ids: number[], params: VNDBQueryParams = {}, abortSignal?: AbortSignal) => {
-        if (!ids.length) return Promise.resolve({ results: [] as Trait_Small[], status: 'OK', source: 'local', more: false, count: 0 })
-        return fetchVNDB<Trait_Small>(`i`, { ...params, size: "small", id: ids.map(id => `i${id}`).join(",") }, undefined, abortSignal)
+        if (!ids.length) return Promise.resolve({ results: [] as Trait_Small[], more: false, count: 0 })
+        return fetchVNDB<Trait_Small>(`i`, { ...params, response_size: "small", id: ids.map(id => `i${id}`).join(",") }, undefined, abortSignal)
       },
     },
 
