@@ -15,13 +15,6 @@
 {$CADDY_BIND::30709} {
 	import Caddyfile.snippet
 
-	# The frontend lives under its basePath, so the bare root serves nothing.
-	# Standalone, this project is the whole site. (Under AppGateway the root is
-	# the landing page — hence this lives here, not in the snippet.)
-	handle / {
-		redir * /visual-novel-database permanent
-	}
-
 	# Anything the snippet did not claim. Without this Caddy answers an empty 200,
 	# which looks like a working page. (Under AppGateway the catch-all is the
 	# landing page instead — which is why it lives here, not in the snippet.)

@@ -36,7 +36,7 @@
   <text x="78" y="238" font-size="18" font-weight="700" fill="#78350F">Caddy · :30709</text>
   <text x="78" y="262" font-size="11.5" fill="#78350F">The only public ingress. Routes by path prefix, and each backend prefix exposes an explicit allowlist of the routes the frontend actually uses.</text>
   <text x="78" y="282" font-size="11.5" fill="#78350F">Allowlisted requests are first probed with <tspan font-weight="700">forward_auth</tspan> against userserve <tspan font-family="Consolas, monospace">/auth/verify</tspan> (204 = pass, 401 = reject). Anything off the list is answered 403 and never forwarded —</text>
-  <text x="78" y="302" font-size="11.5" fill="#78350F">so <tspan font-family="Consolas, monospace">/vndb/admin</tspan>, the write routes and <tspan font-family="Consolas, monospace">/tasks/*</tspan> stay reachable only on the loopback ports. <tspan font-family="Consolas, monospace">/docs</tspan> serves the API specs, gated the same way.</text>
+  <text x="78" y="302" font-size="11.5" fill="#78350F">so <tspan font-family="Consolas, monospace">/vndb/admin</tspan>, the write routes and <tspan font-family="Consolas, monospace">/tasks/*</tspan> stay reachable only on the loopback ports. The API specs are served the same way, under the frontend basePath.</text>
   <text x="78" y="322" font-size="11.5" fill="#78350F">An imgserve cache hit is served straight off disk by <tspan font-weight="700">file_server</tspan> — Flask never runs.</text>
 
   <!-- ============ WEB TIER ============ -->

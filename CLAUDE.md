@@ -8,7 +8,8 @@ backend/     vndb  userserve  imgserve  transserve  musicserve  logserve   (Flas
              procserve — the launcher's process supervisor; a library, not a service
 frontend/    Next.js 16, basePath /visual-novel-database
 Caddyfile*   the edge — routing plus the forward_auth gate
-docs/api/    one OpenAPI 3.1 document per service, browsable at /docs
+docs/api/    one OpenAPI 3.1 document per service, browsable at
+             /visual-novel-database/docs on the running stack
 docs/assets/ architecture.svg is the source; architecture.png is rendered from it
 ```
 

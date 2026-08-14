@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API — Visual Novel Database</title>
+<script>
+  // This page is a directory index. Reached without the trailing slash, every
+  // relative URL on it — including the script tag below — would resolve one
+  // level too high, so pin the base before the parser gets there.
+  (function () {
+    var p = location.pathname;
+    if (p.endsWith('/index.html')) p = p.slice(0, -'index.html'.length);
+    else if (!p.endsWith('/')) p += '/';
+    var base = document.createElement('base');
+    base.href = p;
+    document.head.appendChild(base);
+  })();
+</script>
 <script src="js-yaml.min.js"></script>
 <style>
   :root {
@@ -151,6 +164,15 @@ const SPECS = [
   { file:'musicserve.yaml', name:'musicserve', prefix:'/musicserve' },
 ];
 const METHODS = ['get','post','put','patch','delete'];
+
+// This page is a directory index, so a visit without the trailing slash would
+// resolve a relative "vndb.yaml" one level too high. Derive the directory once
+// and build spec URLs from it, so every form of the URL works.
+const HERE = (() => {
+  const p = location.pathname;
+  if (p.endsWith('/index.html')) return p.slice(0, -'index.html'.length);
+  return p.endsWith('/') ? p : p + '/';
+})();
 const COLOR = { get:'var(--get)', post:'var(--post)', put:'var(--put)', patch:'var(--patch)', delete:'var(--delete)' };
 
 let doc = null, current = null;
@@ -436,7 +458,7 @@ document.addEventListener('click', e => {
 async function load(spec) {
   content.innerHTML = '<div class="hint">Loading…</div>';
   try {
-    const text = await fetch(spec.file, { credentials:'include' }).then(r => {
+    const text = await fetch(HERE + spec.file, { credentials:'include' }).then(r => {
       if (!r.ok) throw new Error(`${spec.file} → HTTP ${r.status}`);
       return r.text();
     });
@@ -457,7 +479,7 @@ async function load(spec) {
     b.innerHTML = `<span>${s.name}</span><span class="n">…</span>`;
     b.onclick = () => load(s);
     specsEl.appendChild(b);
-    fetch(s.file, { credentials:'include' })
+    fetch(HERE + s.file, { credentials:'include' })
       .then(r => r.ok ? r.text() : Promise.reject())
       .then(t => {
         const d = jsyaml.load(t);

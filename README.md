@@ -49,7 +49,7 @@ admin and write routes stay reachable only on the loopback ports.
 
 Each service's HTTP surface is specified in [`docs/api/`](docs/api/) — one OpenAPI 3.1
 document per service, plus the conventions they all share. The specs are browsable at
-**`/docs`** on the running stack.
+**`/visual-novel-database/docs`** on the running stack.
 
 ## Running
 

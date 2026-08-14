@@ -158,7 +158,11 @@ handle_path /musicserve/* {
 # session cookie rides along, so a request from the page is a real, authenticated
 # request, and a route outside a prefix's allowlist answers 403 exactly as it
 # would for the frontend.
-handle_path /docs* {
+#
+# Must stay above the frontend block: this path sits inside the basePath, so the
+# `/visual-novel-database/*` matcher below would otherwise claim it and Next
+# would answer with its catch-all route.
+handle_path /visual-novel-database/docs* {
 	route {
 		# forward_auth written out, so a rejected probe can answer two ways. A
 		# browser navigation gets the login page — the access token lasts 30
@@ -178,11 +182,18 @@ handle_path /docs* {
 			}
 			@vndb_docs_deny status 401
 			handle_response @vndb_docs_deny {
-				redir @vndb_docs_page /visual-novel-database/login?next=/docs/ 302
+				redir @vndb_docs_page /visual-novel-database/login?next=/visual-novel-database/docs/ 302
 				header Content-Type application/json
 				respond `{"error":"unauthorized","message":"Not signed in."}` 401
 			}
 		}
+		# try_files serves the index for the bare path instead of redirecting to
+		# it, which file_server would normally do for a directory — so send the
+		# canonical form ourselves and keep relative URLs on the page resolving
+		# inside this directory.
+		@vndb_docs_root path /
+		redir @vndb_docs_root /visual-novel-database/docs/ 308
+
 		root * {$API_DOCS_FOLDER:./docs/api}
 		try_files {path} /index.html
 		file_server
