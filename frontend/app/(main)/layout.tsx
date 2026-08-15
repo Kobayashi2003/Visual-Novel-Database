@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils"
 import { useOnScroll } from "@/hooks/useOnScroll"
 import { UserProvider } from "@/context/UserContext"
 import { SearchProvider } from "@/context/SearchContext"
+import { PlayerProvider } from "@/context/PlayerContext"
+import { GlobalNowPlaying } from "@/components/player/GlobalNowPlaying"
 import { IMGSERVE_BASE_URL } from "@/lib/constants"
 import { HeaderBar } from "@/components/header/HeaderBar"
 
@@ -51,11 +53,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   // The relation-graph page (`/{slug}/rg`) is full-bleed with its own frosted
   // header overlay, so the global header — and its top-edge peek — must stay out.
   // /login is standalone too — its header would only offer search that 401s.
-  const hideHeader = pathname === "/kobayashi" || pathname === "/login" || pathname.endsWith("/rg")
+  const hideHeader = pathname === "/login" || pathname.endsWith("/rg")
   // The Kobayashi showcase paints its own audio-reactive background, so the
   // global wallpaper is suppressed there (it would stack underneath and fight
   // the bespoke layers).
-  const bespokeBg = pathname === "/kobayashi"
+  // No route paints its own background at the moment; kept because the wash and
+  // the wallpaper are toggled together wherever one does.
+  const bespokeBg = false
 
   // Drives the auto-hide header (`trigger` === hidden): shown at the top of the
   // page and after a short scroll up, hidden once the user scrolls back down.
@@ -93,6 +97,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   return (
     <SearchProvider>
       <UserProvider>
+        <PlayerProvider>
         <div
           style={{
             backgroundImage: bespokeBg ? undefined : bgUrl,
@@ -144,7 +149,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               {children}
             </div>
           </div>
+          {/* Mounted beside the page, not inside it: playback has to survive
+              navigation, so the bar and the audio element outlive any route. */}
+          <GlobalNowPlaying />
         </div>
+        </PlayerProvider>
       </UserProvider>
     </SearchProvider>
   )

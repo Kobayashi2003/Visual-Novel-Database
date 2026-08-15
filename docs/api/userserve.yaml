@@ -131,7 +131,12 @@ paths:
         Called by Caddy's `forward_auth` on **every** gated request, including
         each image and each audio range request. Deliberately does no database
         lookup — the token plus the revocation blocklist already answer the only
-        question being asked.
+        question being asked. The admin flag rides in the token for the same
+        reason, so reporting it costs nothing here.
+
+        This is the only place the caller's identity is told to anything
+        downstream. The edge copies both headers upstream, having first stripped
+        whatever the client sent under those names.
 
         Not intended for clients; documented because it defines the edge's
         behaviour.
@@ -143,7 +148,14 @@ paths:
           headers:
             X-User-Id:
               schema: { type: string }
-              description: Passed upstream by the edge.
+              description: The caller's user id.
+            X-Is-Admin:
+              schema: { type: string, enum: ["true", "false"] }
+              description: |
+                Whether the caller is an administrator. Read by musicserve to
+                gate its upload route — the one write route the edge exposes.
+                Changing a user's admin flag only takes effect when their access
+                token next rotates.
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /register:
@@ -470,42 +482,6 @@ paths:
         "403": { $ref: "#/components/responses/NotYourAccount" }
         "404": { $ref: "#/components/responses/UserNotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
-
-  /u{username}/v/c/public:
-    get:
-      tags: [categories]
-      summary: A user's public VN collections
-      description: |
-        The only cross-user read in the service. Any signed-in user may call it
-        for any username, but it exposes exactly two collections — `played` and
-        `playing`, matched case-insensitively — plus that user's VN ratings. No
-        other collection is ever included, whatever the user named it.
-      security:
-        - sessionCookie: []
-      responses:
-        "200":
-          description: The public view.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  username: { type: string }
-                  collections:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        category_name: { type: string }
-                        marks:
-                          type: array
-                          items: { type: integer }
-                  ratings:
-                    type: object
-                    description: VN id → 1–5 score. Keys are JSON strings.
-                    additionalProperties: { type: integer }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/UserNotFound" }
 
   /{type}/c:
     parameters:

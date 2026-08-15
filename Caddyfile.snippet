@@ -1,6 +1,6 @@
 # Route definitions for this app — the single source of truth, imported by every
 # edge that fronts it: ./Caddyfile (standalone), deploy/Caddyfile (Docker), and
-# AppGateway (several apps sharing one public port).
+# any external edge that serves this app alongside others.
 #
 # Upstreams come from env so the same routes serve loopback ports and container
 # names alike. Defaults are the standalone ports — 127.0.0.1, not localhost: on
@@ -12,15 +12,19 @@
 # Auth lives here, not in the backends. Each backend prefix exposes an explicit
 # allowlist of the routes the frontend uses (everything else 403s without being
 # forwarded) and gates them with forward_auth against userserve /auth/verify.
-# vndb / imgserve / transserve / musicserve therefore hold no auth code at all,
-# and their admin and write routes remain reachable on the loopback ports.
+# vndb / imgserve / transserve therefore hold no auth code at all, and their
+# admin and write routes remain reachable on the loopback ports only.
 # userserve is exempt: every one of its routes already guards itself.
+# musicserve is the one place a write route is exposed here — its upload — and
+# even there the service authenticates nothing: it reads the X-Is-Admin this
+# edge sets from the probe, having stripped whatever the client sent.
 #
 # Rules for anything added here:
-#   - No matcher-less `handle` at top level. Under AppGateway the catch-all is the
-#     landing page. (One nested inside a handle_path is fine — it is scoped to it,
-#     like the imgserve cache-miss fallback below.)
-#   - Prefix named matchers with the app (@vndb_*). Under AppGateway every app's
+#   - No matcher-less `handle` at top level. A shared edge owns the catch-all,
+#     and claiming it here would swallow every other app's routes. (One nested
+#     inside a handle_path is fine — it is scoped to it, like the imgserve
+#     cache-miss fallback below.)
+#   - Prefix named matchers with the app (@vndb_*). On a shared edge every app's
 #     snippet is imported into one site block, and matcher names are scoped to it.
 #   - Backend prefixes stay top-level, not under the frontend's basePath:
 #     lib/constants.ts sends them absolute, and basePath does not rewrite fetch()
@@ -126,23 +130,57 @@ handle_path /transserve/* {
 
 handle_path /musicserve/* {
 	route {
-		@vndb_music_public {
+		# musicserve is the one service with a write route at the edge, and it
+		# decides who may use it from X-Is-Admin. That header therefore has to
+		# come from the auth probe and from nowhere else — strip whatever the
+		# client sent before the probe runs, or anyone could name themselves an
+		# administrator. copy_headers then sets it from userserve's answer.
+		request_header -X-User-Id
+		request_header -X-Is-Admin
+
+		@vndb_music_read {
 			method GET HEAD
-			path /music/* /cover/* /meta/*
+			path /soundtracks /soundtracks/*
 		}
 		@vndb_music_available {
 			method POST
-			path /available
+			path /soundtracks/available
 		}
-		handle @vndb_music_public {
+		# Upload. Gated here as well as in musicserve: the edge decides the path
+		# is reachable at all, the service decides the caller is an admin.
+		@vndb_music_upload {
+			method POST
+			path /soundtracks/*/tracks
+		}
+		@vndb_music_delete {
+			method DELETE
+			path /soundtracks/*
+		}
+		handle @vndb_music_read {
 			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
 				uri /auth/verify
+				copy_headers X-User-Id X-Is-Admin
 			}
 			reverse_proxy {$MUSICSERVE_UPSTREAM:127.0.0.1:5004}
 		}
 		handle @vndb_music_available {
 			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
 				uri /auth/verify
+				copy_headers X-User-Id X-Is-Admin
+			}
+			reverse_proxy {$MUSICSERVE_UPSTREAM:127.0.0.1:5004}
+		}
+		handle @vndb_music_upload {
+			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+				uri /auth/verify
+				copy_headers X-User-Id X-Is-Admin
+			}
+			reverse_proxy {$MUSICSERVE_UPSTREAM:127.0.0.1:5004}
+		}
+		handle @vndb_music_delete {
+			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
+				uri /auth/verify
+				copy_headers X-User-Id X-Is-Admin
 			}
 			reverse_proxy {$MUSICSERVE_UPSTREAM:127.0.0.1:5004}
 		}
@@ -187,13 +225,10 @@ handle_path /visual-novel-database/docs* {
 				respond `{"error":"unauthorized","message":"Not signed in."}` 401
 			}
 		}
-		# try_files serves the index for the bare path instead of redirecting to
-		# it, which file_server would normally do for a directory — so send the
-		# canonical form ourselves and keep relative URLs on the page resolving
-		# inside this directory.
-		@vndb_docs_root path /
-		redir @vndb_docs_root /visual-novel-database/docs/ 308
-
+		# No trailing-slash redirect here: handle_path has already stripped the
+		# prefix, so both `/docs` and `/docs/` arrive as the root and a redirect
+		# to the canonical form would match its own target — an endless loop.
+		# The page canonicalises its own URL instead (see index.html).
 		root * {$API_DOCS_FOLDER:./docs/api}
 		try_files {path} /index.html
 		file_server

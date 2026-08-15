@@ -2,18 +2,28 @@ openapi: 3.1.0
 
 info:
   title: musicserve
-  version: "1.0"
+  version: "2.0"
   description: |
-    Theme music for visual novels, served straight off disk.
+    The music library: one visual novel is one soundtrack.
 
-    A track is located by **vnid** — the numeric VNDB id, optionally `v`-prefixed
-    (`17` and `v17` are the same track). There is no database: the filename is
-    the index, so adding a track means dropping a file into the music folder.
+    **There is no database.** The folder layout on disk is the index —
+    `music/v17/01 - Cardinal.flac` — and it is scanned per request. The filename
+    carries both the order and the title, because tags cannot be relied on in a
+    hand-assembled library: half the files have no track number.
 
-    Cover art comes from a sibling image file when one exists, otherwise from
-    the audio file's embedded album art, which is extracted and cached on first
-    request. The cache key includes the audio file's mtime, so replacing a track
-    invalidates its cover automatically.
+    A track therefore has no id of its own. It is addressed by its soundtrack and
+    its **1-based position**: `/soundtracks/v17/tracks/3`. Positions shift when a
+    track is added or removed, which costs nothing because nothing persists a
+    reference to a track — the play queue lives in the browser.
+
+    This service knows only ids, filenames and tags. Titles and cover art for the
+    visual novels themselves come from vndb and imgserve; a client joins them by
+    id.
+
+    Uploading is the **only write route the edge exposes for any service**. It is
+    restricted to administrators: the edge probes userserve, strips whatever the
+    client sent as `X-Is-Admin`, and replaces it with the answer. This service
+    reads that verdict and holds no auth code of its own.
 
     See ./README.md for the conventions shared by every service.
 
@@ -24,130 +34,57 @@ servers:
     description: Direct, loopback only
 
 tags:
-  - name: media
-    description: Audio and cover byte streams
-  - name: metadata
-    description: JSON about a track
+  - name: soundtracks
+    description: Browse and read
+  - name: manage
+    description: Administrator writes
 
 paths:
-  /music/{vnid}:
+  /soundtracks:
     get:
-      tags: [media]
-      summary: Stream the audio for a visual novel
+      tags: [soundtracks]
+      summary: Every visual novel that has a soundtrack
       description: |
-        Returns the audio bytes. Range requests are supported, so seeking in a
-        player fetches `206 Partial Content` rather than re-downloading.
-
-        Cached for an hour rather than immutably, because a track can be
-        replaced in place; conditional revalidation keeps repeat plays cheap.
+        Ids and track counts only — the caller already has the titles and covers
+        from vndb and imgserve.
       parameters:
-        - $ref: "#/components/parameters/Vnid"
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
       responses:
         "200":
-          description: The whole file.
-          headers:
-            Accept-Ranges: { schema: { type: string }, description: Always `bytes`. }
-            Cache-Control: { schema: { type: string }, description: "`public, max-age=3600`" }
-          content:
-            audio/mpeg: { schema: { type: string, format: binary } }
-            audio/flac: { schema: { type: string, format: binary } }
-        "206":
-          description: A byte range, in response to a `Range` request.
-        "304":
-          description: Unchanged since the client's cached copy.
-        "400":
-          $ref: "#/components/responses/InvalidVnid"
-        "404":
-          $ref: "#/components/responses/NoTrack"
-
-  /cover/{vnid}:
-    get:
-      tags: [media]
-      summary: Cover art for a visual novel
-      description: |
-        A sibling image file if one exists; otherwise the audio file's embedded
-        album art, extracted and cached. `404` when the track has neither.
-      parameters:
-        - $ref: "#/components/parameters/Vnid"
-      responses:
-        "200":
-          description: The image.
-          content:
-            image/jpeg: { schema: { type: string, format: binary } }
-            image/png: { schema: { type: string, format: binary } }
-            image/webp: { schema: { type: string, format: binary } }
-        "304":
-          description: Unchanged since the client's cached copy.
-        "400":
-          $ref: "#/components/responses/InvalidVnid"
-        "404":
-          description: No track, or a track with no cover of either kind.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
-
-  /meta/{vnid}:
-    get:
-      tags: [metadata]
-      summary: Track metadata
-      description: |
-        Tags read from the audio file. Which fields are present depends on how
-        the file was tagged — only `id` and `has_cover` are guaranteed.
-      parameters:
-        - $ref: "#/components/parameters/Vnid"
-      responses:
-        "200":
-          description: Metadata for the track.
+          description: The page.
           content:
             application/json:
               schema:
                 type: object
-                required: [id, has_cover]
+                required: [results, count, more]
                 properties:
-                  id:
-                    type: string
-                    description: The normalized vnid, always `v`-prefixed.
-                  has_cover:
-                    type: boolean
-                    description: Whether /cover/{vnid} will return an image.
-                  title: { type: [string, "null"] }
-                  artist: { type: [string, "null"] }
-                  album: { type: [string, "null"] }
-                  duration:
-                    type: [number, "null"]
-                    description: Seconds.
-                  format:
-                    type: [string, "null"]
-                    description: Container, lowercased — `flac`, `mp3`, …
-                additionalProperties: true
-              example:
-                id: v60663
-                has_cover: true
-                title: "IF Else[Instrumental]"
-                artist: "Neko Hacker"
-                album: "ディメンション凸ラバース!! ORIGINAL SOUND TRACK"
-                duration: 215.25
-                format: flac
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, examples: ["v17"] }
+                        track_count: { type: integer }
+                  count: { type: integer }
+                  more: { type: boolean }
         "400":
-          $ref: "#/components/responses/InvalidVnid"
-        "404":
-          $ref: "#/components/responses/NoTrack"
+          description: "`invalid_request` — non-integer paging."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
-  /available:
+  /soundtracks/available:
     post:
-      tags: [metadata]
-      summary: Which of these visual novels have music
+      tags: [soundtracks]
+      summary: Which of these visual novels have a soundtrack
       description: |
-        A batch existence check, for deciding which cards in a list get a play
-        button without one request per card.
-
-        Keys in the response echo **exactly what you posted** — `"17"` stays
-        `"17"`, `"v17"` stays `"v17"` — so the result maps straight onto the
-        caller's own data without renormalizing.
-
-        An id that is not a valid vnid reports `false` rather than failing the
-        whole batch. `false` therefore means "no track for this id", whether the
-        id was malformed or simply has no music.
+        Answers a whole grid of cards in one round trip. Keys in the reply echo
+        the caller's spelling, so it maps straight onto the caller's own data.
       requestBody:
         required: true
         content:
@@ -159,26 +96,202 @@ paths:
                 ids:
                   type: array
                   maxItems: 2000
-                  items:
-                    type: [string, integer]
-            example:
-              ids: ["v17", 23, "v99999"]
+                  items: { type: [string, integer] }
+                  description: "`v17`, `17` and `\"17\"` all name the same work."
       responses:
         "200":
-          description: One boolean per posted id.
+          description: Id → whether it has a soundtrack.
           content:
             application/json:
               schema:
                 type: object
-                required: [available]
                 properties:
                   available:
                     type: object
                     additionalProperties: { type: boolean }
-              example:
-                available: { "v17": true, "23": false, "v99999": false }
         "400":
-          description: Missing `ids` list, or more than 2000 ids.
+          description: Missing `ids`, or more than 2000 of them.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /soundtracks/{vnid}:
+    parameters:
+      - $ref: "#/components/parameters/Vnid"
+    get:
+      tags: [soundtracks]
+      summary: One soundtrack's track list
+      responses:
+        "200":
+          description: The tracks, in playing order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  track_count: { type: integer }
+                  duration:
+                    type: number
+                    description: Total seconds across every track.
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/Track" }
+        "400": { $ref: "#/components/responses/BadVnid" }
+        "404": { $ref: "#/components/responses/NoSoundtrack" }
+    delete:
+      tags: [manage]
+      summary: Remove a whole soundtrack
+      description: Deletes every track and the folder. Administrators only.
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "400": { $ref: "#/components/responses/BadVnid" }
+        "403": { $ref: "#/components/responses/NotAdmin" }
+        "404": { $ref: "#/components/responses/NoSoundtrack" }
+
+  /soundtracks/{vnid}/cover:
+    get:
+      tags: [soundtracks]
+      summary: The soundtrack's own cover
+      description: |
+        A `cover.*` / `folder.*` / `front.*` image in the folder, else art
+        embedded in the first track that carries any.
+
+        **404 is the normal answer for a soundtrack without one.** The visual
+        novel's cover is deliberately not substituted — it is a different
+        picture — so a client shows a placeholder instead.
+      parameters:
+        - $ref: "#/components/parameters/Vnid"
+      responses:
+        "200":
+          description: The image.
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "400": { $ref: "#/components/responses/BadVnid" }
+        "404":
+          description: This soundtrack has no cover of its own.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /soundtracks/{vnid}/tracks:
+    post:
+      tags: [manage]
+      summary: Add tracks to a soundtrack
+      description: |
+        `multipart/form-data`, field `files`, repeated once per track — a whole
+        album arrives in one request. Administrators only.
+
+        Synchronous by design: the slow part is the transfer, which the caller
+        waits for either way, so a queue would add a worker process and buy
+        nothing.
+
+        A filename that already starts with a number keeps its own ordering;
+        anything else is prefixed with the next free number, so an upload can
+        never land unordered. Filenames containing a path separator are refused
+        rather than rewritten.
+      parameters:
+        - $ref: "#/components/parameters/Vnid"
+        - name: replace
+          in: query
+          schema: { type: boolean, default: false }
+          description: Overwrite an existing filename instead of reporting a conflict.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+      responses:
+        "201":
+          description: Stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  stored:
+                    type: array
+                    items: { type: string }
+                    description: The filenames as they were written.
+        "400":
+          description: |
+            No files attached, a malformed vnid, or a filename containing a path
+            separator or reserved character.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403": { $ref: "#/components/responses/NotAdmin" }
+        "409":
+          description: |
+            `conflict` — a track with that filename is already here. Retry with
+            `replace=true` to overwrite it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: |
+            `payload_too_large` — the request exceeded the upload ceiling
+            (1 GB by default; `MUSICSERVE_MAX_UPLOAD_BYTES`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "415":
+          description: "`unsupported_media_type` — not one of the accepted audio formats."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /soundtracks/{vnid}/tracks/{ordinal}:
+    parameters:
+      - $ref: "#/components/parameters/Vnid"
+      - $ref: "#/components/parameters/Ordinal"
+    get:
+      tags: [soundtracks]
+      summary: Stream one track
+      description: |
+        Range requests are supported, so a player seeks with a `206` partial
+        fetch rather than re-downloading.
+
+        Cached for an hour rather than immutably: unlike the VNDB images, a file
+        here can be replaced in place, and the conditional revalidation keeps
+        repeat plays cheap anyway.
+      responses:
+        "200":
+          description: The audio.
+          headers:
+            Accept-Ranges:
+              schema: { type: string, const: bytes }
+          content:
+            audio/flac: { schema: { type: string, format: binary } }
+            audio/mpeg: { schema: { type: string, format: binary } }
+        "206":
+          description: The requested byte range.
+        "400": { $ref: "#/components/responses/BadVnid" }
+        "404":
+          description: No soundtrack, or no track at that position.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      tags: [manage]
+      summary: Remove one track
+      description: |
+        The tracks after it move up a position — ordinals are positions in the
+        listing, not stored ids, so nothing needs renumbering.
+      responses:
+        "200": { $ref: "#/components/responses/Message" }
+        "400": { $ref: "#/components/responses/BadVnid" }
+        "403": { $ref: "#/components/responses/NotAdmin" }
+        "404":
+          description: No track at that position.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -190,35 +303,82 @@ components:
       in: path
       required: true
       schema: { type: string }
-      description: Numeric VNDB id, optionally `v`-prefixed. `17` and `v17` are equivalent.
-      examples:
-        prefixed: { value: v17 }
-        bare: { value: "17" }
+      description: |
+        A visual novel id, with or without the `v` — `v17` and `17` both work.
+        Anything else is a `400`, which is also what makes path traversal
+        impossible here.
+    Ordinal:
+      name: ordinal
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+      description: 1-based position in the track listing.
 
   schemas:
+    Track:
+      type: object
+      properties:
+        ordinal: { type: integer }
+        filename: { type: string }
+        title:
+          type: string
+          description: |
+            From the filename, with the leading track number stripped. Always
+            present — the one thing every file in the library is guaranteed to
+            have.
+        tag_title:
+          type: [string, "null"]
+          description: What the file's own tags claim, which is often missing.
+        artist: { type: [string, "null"] }
+        album: { type: [string, "null"] }
+        duration:
+          type: [number, "null"]
+          description: Seconds. Null when the file could not be parsed.
+        format:
+          type: string
+          examples: [flac, mp3, m4a, ogg, opus, wav]
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+          description: For humans. Not stable — never parse it.
+
     Error:
       type: object
       required: [error, message]
       properties:
         error:
           type: string
-          description: Machine code. Part of the contract.
-          examples: [invalid_request, not_found, method_not_allowed, internal_error]
+          description: |
+            From the shared vocabulary in ./README.md — this service adds no
+            codes of its own.
+          examples: [invalid_request, forbidden, not_found, conflict, payload_too_large, unsupported_media_type]
         message:
           type: string
           description: For humans. Not stable — never parse it.
 
   responses:
-    InvalidVnid:
-      description: The vnid is not a number, with or without a `v` prefix.
+    Message:
+      description: Succeeded.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Message" }
+    BadVnid:
+      description: "`invalid_request` — the vnid is not a number."
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example:
-            error: invalid_request
-            message: vnid must be a number, optionally v-prefixed (e.g. v17)
-    NoTrack:
-      description: No audio file for this vnid.
+    NoSoundtrack:
+      description: "`not_found` — this visual novel has no soundtrack."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotAdmin:
+      description: |
+        `forbidden` — writes are for administrators. The verdict comes from the
+        edge's probe, not from anything the client can set.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

@@ -5,6 +5,7 @@
 import { useState } from "react"
 import { api } from "@/lib/api"
 import { displayTitle } from "@/lib/original"
+import { shouldBlur } from "@/lib/utils"
 import type { VN } from "@/lib/types"
 import { useEntity } from "@/hooks/useEntity"
 import { useSearchContext } from "@/context/SearchContext"
@@ -21,6 +22,7 @@ import { VNStaff } from "./VNStaff"
 import { VNCharacters } from "./VNCharacters"
 import { VNCharactersPanel } from "./VNCharactersPanel"
 import { VNReleases } from "./VNReleases"
+import { VNSoundtrack } from "./VNSoundtrack"
 
 interface VNDetailPageProps {
   id: number
@@ -75,6 +77,13 @@ export function VNDetailPage({ id }: VNDetailPageProps) {
             <BBCodeText text={vn.description} collapsible />
           </Section>
         )}
+
+        {/* Owns its own Section, so a work with no music shows no heading. */}
+        <VNSoundtrack
+          vnid={vn.id}
+          vnTitle={displayTitle(vn, showOriginal)}
+          blur={!!vn.image && shouldBlur(vn.image.sexual, vn.image.violence, sexualLevel, violenceLevel)}
+        />
 
         {vn.tags.length > 0 && (
           <Section title="Tags" count={vn.tags.length}>

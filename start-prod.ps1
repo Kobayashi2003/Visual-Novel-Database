@@ -15,16 +15,16 @@
 # (backend/scripts/pg-service.ps1). This script verifies it is up and accepting
 # connections first, auto-starting the service if it is merely stopped.
 #
-# The frontend sits under a basePath rather than the origin root because a single
-# public port may front several apps — run with -NoCaddy to let that shared
-# gateway own the port instead. See AppGateway/.
+# The frontend sits under a basePath rather than the origin root, so the same
+# public port can front other apps too — run with -NoCaddy to let an external
+# edge own the port instead.
 #
 # Usage:
 #   .\start-prod.ps1                     # start with whatever is already built
 #   .\start-prod.ps1 -Build              # `npm run build` first, then start
 #   .\start-prod.ps1 -Dev                # dev stack (pixi run dev + next dev)
 #   .\start-prod.ps1 -Clean              # delete frontend/.next first, then start
-#   .\start-prod.ps1 -NoCaddy            # skip the edge (AppGateway owns the port)
+#   .\start-prod.ps1 -NoCaddy            # skip the edge (something else owns the port)
 #   .\start-prod.ps1 -NextPort 5005      # override the Next.js port
 #   .\start-prod.ps1 -Bind :8080         # override the public port
 #   .\start-prod.ps1 -SkipPgCheck        # skip the Postgres readiness check
@@ -46,7 +46,7 @@ param(
     # The public port. frp forwards here.
     [string]$Bind = ':30709',
     # Skip this project's edge, for when an external one already owns the public
-    # port. AppGateway imports this project's Caddyfile.snippet, so the routes are
+    # port. That edge is expected to import ./Caddyfile.snippet, so the routes are
     # identical; two Caddy processes just cannot both bind the port.
     [switch]$NoCaddy,
     # Postgres runs as a Windows service (backend/scripts/pg-service.ps1); this
@@ -89,11 +89,12 @@ if (-not $NoCaddy) {
     if (-not (Get-Command caddy -ErrorAction SilentlyContinue)) {
         throw 'caddy is not on PATH (https://caddyserver.com/download), or pass -NoCaddy if another edge owns the port.'
     }
-    # This edge and AppGateway want the same port, by design. Say so plainly rather
-    # than letting Caddy fail to bind and bury the reason in its JSON log.
+    # Any external edge fronting this app wants the same port, by design. Say so
+    # plainly rather than letting Caddy fail to bind and bury the reason in its
+    # JSON log.
     $bindPort = [int]($Bind -split ':')[-1]
     if (Get-NetTCPConnection -LocalPort $bindPort -State Listen -ErrorAction SilentlyContinue) {
-        throw "Port $bindPort is already in use — another edge (AppGateway, or an earlier run) owns it. Stop it first, or pass -NoCaddy."
+        throw "Port $bindPort is already in use — another edge, or an earlier run, owns it. Stop it first, or pass -NoCaddy."
     }
 }
 

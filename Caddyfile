@@ -2,8 +2,8 @@
 #
 # Routes live in ./Caddyfile.snippet; this file is just the site block around
 # them. Started by start-prod.ps1, which sets the upstream env vars from
-# caddy-env.ps1. Skipped under `start-prod.ps1 -NoCaddy`, when AppGateway owns the
-# port instead.
+# caddy-env.ps1. Skipped under `start-prod.ps1 -NoCaddy`, when an external edge
+# owns the port instead.
 {
 	auto_https off
 
@@ -16,8 +16,8 @@
 	import Caddyfile.snippet
 
 	# Anything the snippet did not claim. Without this Caddy answers an empty 200,
-	# which looks like a working page. (Under AppGateway the catch-all is the
-	# landing page instead — which is why it lives here, not in the snippet.)
+	# which looks like a working page. It lives here rather than in the snippet
+	# because a shared edge owns its own catch-all.
 	handle {
 		respond "Not found" 404
 	}

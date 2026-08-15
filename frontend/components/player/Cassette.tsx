@@ -22,8 +22,8 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
-import { usePlayer, formatTime, type PlayOrder } from "./player"
+import { usePlayer, formatTime, type PlayOrder } from "@/context/PlayerContext"
+import { SoundtrackCover } from "./SoundtrackCover"
 
 
 /* ─── Geometry ─────────────────────────────────────────────────────────────── */
@@ -107,17 +107,14 @@ function Reel({ spoolR, playing }: { spoolR: MotionValue<number>; playing: boole
 /* ─── The cassette shell ───────────────────────────────────────────────────── */
 
 function Cassette() {
-  const { track, meta, playing, timeMV, duration } = usePlayer()
-  const total = duration || meta?.duration || 0
+  const { track, playing, timeMV, duration } = usePlayer()
+  const total = duration || track?.duration || 0
 
   const progress = useTransform(timeMV, t => (total > 0 ? Math.min(1, Math.max(0, t / total)) : 0))
   const leftR = useTransform(progress, p => SPOOL_MAX - (SPOOL_MAX - SPOOL_MIN) * p)
   const rightR = useTransform(progress, p => SPOOL_MIN + (SPOOL_MAX - SPOOL_MIN) * p)
 
-  const labelUrl = track
-    ? (meta?.has_cover ? api.music.coverUrl(track.vnid) : track.vnCover)
-    : null
-  const sub = [meta?.title, meta?.artist].filter(Boolean).join(" · ") || track?.developer || ""
+  const sub = [track?.artist, track?.vnTitle].filter(Boolean).join(" · ")
 
   return (
     <div
@@ -137,14 +134,9 @@ function Cassette() {
         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-black text-black">A</span>
         {track ? (
           <>
-            {labelUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={labelUrl} alt="" draggable={false} className={cn("h-8 w-8 shrink-0 rounded-sm object-cover ring-1 ring-white/15", track.blur && "blur-sm")} />
-            ) : (
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-white/5 ring-1 ring-white/10">
-                <Music className="h-3.5 w-3.5 text-white/30" />
-              </span>
-            )}
+            <SoundtrackCover vnid={track.vnid} blur={track.blur}
+              className="h-8 w-8 shrink-0 rounded-sm ring-1 ring-white/15"
+              iconClassName="h-3.5 w-3.5 text-white/30" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold leading-tight text-white">{track.title}</p>
               {sub && <p className="truncate text-[10px] leading-tight text-muted">{sub}</p>}
@@ -244,8 +236,8 @@ function VUStrip() {
 /* ─── Scrubbable tape-position strip ───────────────────────────────────────── */
 
 function SeekStrip() {
-  const { track, meta, duration, timeMV, seek } = usePlayer()
-  const total = duration || meta?.duration || 0
+  const { track, duration, timeMV, seek } = usePlayer()
+  const total = duration || track?.duration || 0
 
   const [scrub, setScrub] = useState<number | null>(null)
   const dragging = useRef(false)
@@ -362,14 +354,14 @@ function OrderButton() {
 /** Order + transport + volume. `deck` spreads the three groups across the
  *  console; `bar` keeps everything inline for the docked now-playing bar. */
 export function TransportControls({ variant = "deck" }: { variant?: "deck" | "bar" }) {
-  const { track, playing, toggle, next, prev, volume, setVolume, playlist } = usePlayer()
+  const { track, playing, toggle, next, prev, volume, setVolume, queue } = usePlayer()
   const [lastVol, setLastVol] = useState(0.8)
   const muted = volume === 0
   const deck = variant === "deck"
 
   const transport = (
     <div className="flex items-center gap-1.5">
-      <IconBtn label="Previous" onClick={prev} disabled={!track || playlist.length === 0}>
+      <IconBtn label="Previous" onClick={prev} disabled={!track || queue.length === 0}>
         <SkipBack className="h-4 w-4 fill-current" />
       </IconBtn>
       <motion.button
@@ -387,7 +379,7 @@ export function TransportControls({ variant = "deck" }: { variant?: "deck" | "ba
           ? <Pause className="h-4.5 w-4.5 fill-current" />
           : <Play className="ml-0.5 h-4.5 w-4.5 fill-current" />}
       </motion.button>
-      <IconBtn label="Next" onClick={next} disabled={!track || playlist.length === 0}>
+      <IconBtn label="Next" onClick={next} disabled={!track || queue.length === 0}>
         <SkipForward className="h-4 w-4 fill-current" />
       </IconBtn>
     </div>

@@ -37,7 +37,7 @@
   <text x="78" y="262" font-size="11.5" fill="#78350F">The only public ingress. Routes by path prefix, and each backend prefix exposes an explicit allowlist of the routes the frontend actually uses.</text>
   <text x="78" y="282" font-size="11.5" fill="#78350F">Allowlisted requests are first probed with <tspan font-weight="700">forward_auth</tspan> against userserve <tspan font-family="Consolas, monospace">/auth/verify</tspan> (204 = pass, 401 = reject). Anything off the list is answered 403 and never forwarded —</text>
   <text x="78" y="302" font-size="11.5" fill="#78350F">so <tspan font-family="Consolas, monospace">/vndb/admin</tspan>, the write routes and <tspan font-family="Consolas, monospace">/tasks/*</tspan> stay reachable only on the loopback ports. The API specs are served the same way, under the frontend basePath.</text>
-  <text x="78" y="322" font-size="11.5" fill="#78350F">An imgserve cache hit is served straight off disk by <tspan font-weight="700">file_server</tspan> — Flask never runs.</text>
+  <text x="78" y="322" font-size="11.5" fill="#78350F">An imgserve cache hit is served straight off disk by <tspan font-weight="700">file_server</tspan> — Flask never runs. The one write route exposed anywhere is musicserve’s upload: the probe’s <tspan font-family="Consolas, monospace">X-Is-Admin</tspan> is copied upstream, and any client-sent copy is stripped first.</text>
 
   <!-- ============ WEB TIER ============ -->
   <!-- Notes sit above the boxes so the space below them stays clear for the
@@ -88,8 +88,8 @@
   <!-- musicserve -->
   <rect x="1188" y="504" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
   <text x="1202" y="528" font-size="13.5" font-weight="700" fill="#14532D">musicserve · :5004</text>
-  <text x="1202" y="549" font-size="11" fill="#166534">audio library,</text>
-  <text x="1202" y="566" font-size="11" fill="#166534">range-request streaming</text>
+  <text x="1202" y="549" font-size="11" fill="#166534">soundtracks, streaming,</text>
+  <text x="1202" y="566" font-size="11" fill="#166534">admin upload</text>
   <text x="1202" y="590" font-size="11" font-style="italic" fill="#15803D">Waitress — no database</text>
 
   <!-- logserve -->
@@ -175,8 +175,8 @@
   <text x="1156" y="1010" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">images/</tspan> — the mirrored image cache. Laid out to</text>
   <text x="1156" y="1028" font-size="11.5" fill="#6B21A8">match t.vndb.org exactly, which is what lets Caddy</text>
   <text x="1156" y="1046" font-size="11.5" fill="#6B21A8">answer a cache hit without consulting Flask at all.</text>
-  <text x="1156" y="1074" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">music/</tspan> — audio library, scanned from disk;</text>
-  <text x="1156" y="1092" font-size="11.5" fill="#6B21A8">musicserve keeps no database of its own.</text>
+  <text x="1156" y="1074" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">music/</tspan> — one folder per visual novel; the layout</text>
+  <text x="1156" y="1092" font-size="11.5" fill="#6B21A8">is the index, since musicserve has no database.</text>
   <text x="1156" y="1120" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">backups/</tspan> — scheduled pg_dump output</text>
   <text x="1156" y="1146" font-size="11.5" fill="#6B21A8"><tspan font-weight="700">fetch_state.json</tspan> — per-type crawl cursor, so a</text>
   <text x="1156" y="1164" font-size="11.5" fill="#6B21A8">backfill sweep resumes where the last run stopped.</text>

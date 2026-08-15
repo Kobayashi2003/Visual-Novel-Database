@@ -8,12 +8,10 @@
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion, useAnimationFrame, useMotionValue, useTransform } from "motion/react"
-import { Music } from "lucide-react"
 
-import { cn } from "@/lib/utils"
-import { api } from "@/lib/api"
-import { usePlayer, formatTime } from "./player"
-import { TransportControls, EqBars } from "./cassette"
+import { usePlayer, formatTime } from "@/context/PlayerContext"
+import { SoundtrackCover } from "./SoundtrackCover"
+import { TransportControls, EqBars } from "./Transport"
 
 
 // Past this scroll depth the hero deck is out of sight and the bar takes over.
@@ -46,7 +44,7 @@ export function useNowPlayingBarVisible(): boolean {
 
 
 /* Mini cassette: label = cover art, two spinning hubs in the window. */
-function MiniCassette({ coverUrl, blur, spinning }: { coverUrl: string | null; blur: boolean; spinning: boolean }) {
+function MiniCassette({ vnid, blur, spinning }: { vnid: string | null; blur: boolean; spinning: boolean }) {
   const angle = useMotionValue(0)
   const vel = useRef(0)
   useAnimationFrame((_, delta) => {
@@ -60,14 +58,7 @@ function MiniCassette({ coverUrl, blur, spinning }: { coverUrl: string | null; b
     <div className="relative h-10 w-[60px] shrink-0 overflow-hidden rounded-md bg-gradient-to-b from-[#232328] to-[#19191d] shadow-md shadow-black/60 ring-1 ring-white/15">
       {/* Label strip = the cover */}
       <div className="absolute inset-x-1 top-1 h-3.5 overflow-hidden rounded-[3px] bg-[#101013] ring-1 ring-white/10">
-        {coverUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={coverUrl} alt="" draggable={false} className={cn("h-full w-full object-cover", blur && "blur-[2px]")} />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <Music className="h-2 w-2 text-white/25" />
-          </div>
-        )}
+        <SoundtrackCover vnid={vnid} blur={blur} className="h-full w-full" iconClassName="h-2 w-2 text-white/25" />
       </div>
       {/* Window with two hubs */}
       <div className="absolute inset-x-2 bottom-1 flex h-4 items-center justify-around rounded-[3px] bg-black/60 ring-1 ring-white/10">
@@ -127,16 +118,14 @@ function MarqueeTitle({ text, sub }: { text: string; sub?: string }) {
 
 
 export function NowPlayingBar({ visible }: { visible: boolean }) {
-  const { track, meta, playing, duration, timeMV, seek } = usePlayer()
-  const total = duration || meta?.duration || 0
+  const { track, playing, duration, timeMV, seek } = usePlayer()
+  // The listing carried the duration, so the scale is known before the stream's
+  // own metadata arrives.
+  const total = duration || track?.duration || 0
 
   const progress = useTransform(timeMV, t => (total > 0 ? Math.min(1, t / total) : 0))
   const progressX = useTransform(progress, p => `${(p - 1) * 100}%`)
   const timeText = useTransform(timeMV, t => formatTime(t))
-
-  const coverUrl = track
-    ? (meta?.has_cover ? api.music.coverUrl(track.vnid) : track.vnCover)
-    : null
 
   const onSeekClick = (e: React.PointerEvent<HTMLDivElement>) => {
     if (total <= 0) return
@@ -170,11 +159,11 @@ export function NowPlayingBar({ visible }: { visible: boolean }) {
           </div>
 
           <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5 lg:px-6">
-            <MiniCassette coverUrl={coverUrl} blur={!!track.blur} spinning={playing} />
+            <MiniCassette vnid={track.vnid} blur={!!track.blur} spinning={playing} />
             <EqBars playing={playing} className="hidden h-3.5 w-4 shrink-0 sm:flex" />
             <MarqueeTitle
               text={track.title}
-              sub={[meta?.title, meta?.artist].filter(Boolean).join(" · ") || track.developer || undefined}
+              sub={[track.artist, track.vnTitle].filter(Boolean).join(" · ") || undefined}
             />
             <span className="hidden shrink-0 tabular-nums text-xs text-muted md:inline">
               <motion.span className="text-white/90">{timeText}</motion.span>

@@ -1,11 +1,11 @@
 """The HTTP surface. Request and response shapes are in docs/api/userserve.yaml.
 
-Unlike the other services this one authenticates, so most routes are scoped to the
-caller: reading or writing another user's record is 403, not 404. The exception is
-the public-collection route, which any signed-in user may read for any user.
+Unlike the other services this one authenticates, so every route is scoped to the
+caller: reading or writing another user's record is 403, not 404.
 
 `/auth/verify` is not for clients. It is the probe the Caddy edge runs against
-every gated request for every other service.
+every gated request for every other service, and the only place the caller's id
+and admin flag are told to anything downstream.
 """
 
 from flask import Blueprint, jsonify, make_response, request, current_app
@@ -23,7 +23,7 @@ from .operations import (
     get_user_by_email, reset_user_password, check_email, create_verification_code,
     revoke_token, revoke_all_user_tokens,
     get_category, create_category, update_category, delete_category, clear_category,
-    search_categories, get_public_vn_collections,
+    search_categories,
     get_categories_by_mark, contains_mark, is_marked, are_marked,
     add_mark_to_category, remove_mark_from_category,
     add_marks_to_category, remove_marks_from_category,
@@ -59,10 +59,18 @@ def hello_world():
 # Sessions
 # ----------------------------------------
 
+def _access_token(user_id, is_admin: bool):
+    """The admin flag rides in the token so `/auth/verify` — which the edge runs
+    on every gated request, including every image — stays a pure token check
+    with no database lookup. The cost is that a change to the flag only takes
+    effect when the access token next rotates."""
+    return create_access_token(identity=user_id, additional_claims={'adm': bool(is_admin)})
+
+
 def _issue_token_cookies(response, user):
     """Attach a fresh access + refresh cookie pair (and their CSRF tokens) to a
     response, starting an authenticated session for the given user."""
-    set_access_cookies(response, create_access_token(identity=user.id))
+    set_access_cookies(response, _access_token(user.id, user.is_admin))
     set_refresh_cookies(response, create_refresh_token(identity=user.id))
     return response
 
@@ -126,8 +134,13 @@ def register():
 @jwt_required(refresh=True)
 def refresh():
     user_id = get_jwt_identity()
+    # The refresh token carries no admin flag, so the new access token has to
+    # get it from the row. Once per rotation, not once per request.
+    user = get_user(user_id)
+    if not user:
+        return jsonify(error="user_not_found", message="User not found."), 404
     response = jsonify(message="Access token refreshed")
-    set_access_cookies(response, create_access_token(identity=user_id))
+    set_access_cookies(response, _access_token(user_id, user.is_admin))
     return response, 200
 
 @api_bp.route('/logout', methods=['POST'])
@@ -158,6 +171,9 @@ def verify():
     """
     response = make_response('', 204)
     response.headers['X-User-Id'] = str(get_jwt_identity())
+    # Copied upstream by the edge, so a service can gate an admin-only route
+    # without holding any auth code of its own.
+    response.headers['X-Is-Admin'] = 'true' if get_jwt().get('adm') else 'false'
     return response
 
 # ----------------------------------------
@@ -316,17 +332,6 @@ def reset_password_route():
 # ----------------------------------------
 # Categories — named collections of entities
 # ----------------------------------------
-
-@api_bp.route('/u<username>/v/c/public', methods=['GET'])
-@jwt_required()
-def get_public_vn_collections_route(username):
-    """Read another user's `played`/`playing` VN collections. Requires the
-    viewer to be signed in, but is not scoped to the viewer's own id — any
-    authenticated user may read these two collections for any user."""
-    data = get_public_vn_collections(username)
-    if data is None:
-        return jsonify(error="user_not_found", message="User not found."), 404
-    return jsonify(data), 200
 
 @api_bp.route('/<string:type>/c', methods=['GET'])
 @jwt_required()

@@ -33,7 +33,7 @@ every backend by path prefix. Everything else is internal.
 | `imgserve` / `imgserve-celery` | image cache + fetch worker | 5001 |
 | `userserve` | accounts / auth | 5002 |
 | `transserve` | translation | 5003 |
-| `musicserve` | music files | 5004 |
+| `musicserve` | soundtrack library + admin upload | 5004 |
 | `postgres` / `redis` | data + cache/broker | 5432 / 6379 |
 | `init` | one-shot: create DBs, migrate, seed translation memory, then exit | — |
 

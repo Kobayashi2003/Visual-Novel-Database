@@ -23,12 +23,16 @@ class Config:
     # which is NOT where a relative DATA_FOLDER points.
     DATA_FOLDER = os.path.abspath(os.environ['DATA_FOLDER'])
 
-    # The user-managed music library: audio files (and optional cover images)
-    # named by vnid — "v17.mp3" / "17.mp3" / "v17.jpg" all resolve to v17.
+    # The music library: one folder per visual novel, holding its soundtrack —
+    # "music/v17/01 - Cardinal.flac". See musicserve/library.py.
     MUSIC_FOLDER = os.path.abspath(os.environ.get(
         'MUSICSERVE_MUSIC_FOLDER',
         os.path.join(DATA_FOLDER, 'music'),
     ))
+
+    # Upload ceiling for one request. A lossless soundtrack is easily several
+    # hundred MB, and the whole album arrives in a single multipart POST.
+    MAX_CONTENT_LENGTH = int(os.environ.get('MUSICSERVE_MAX_UPLOAD_BYTES', 1024 ** 3))
 
     # Where covers extracted from embedded album art are cached, so mutagen
     # only parses each audio file once per modification.

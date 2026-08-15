@@ -45,6 +45,13 @@ at the edge with **401** and never reaches the service. Each prefix also exposes
 an explicit allowlist; anything outside it is answered **403** without being
 forwarded. Services therefore contain no authentication code.
 
+**Identity** travels only where a service needs it. The probe answers with
+`X-User-Id` and `X-Is-Admin`, and the edge copies them upstream after stripping
+whatever the client sent under those names — so a service can gate an
+administrator-only route by reading a header without authenticating anything
+itself. Today only musicserve does: its soundtrack upload is the single write
+route exposed at the edge, and it answers **403** to a non-administrator.
+
 ### Status is carried by the HTTP status code
 
 Success and failure are expressed by the status code alone. Responses do **not**

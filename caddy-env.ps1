@@ -2,9 +2,9 @@
 # config. Returns a hashtable.
 #
 # Owned here, not by the callers, so every edge agrees on where this app listens:
-# start-prod.ps1 (standalone) and AppGateway (several apps behind one port) both
-# source this file rather than restating ports. backend/.env stays the authority
-# for the Flask ports — the only thing that actually decides where they bind.
+# start-prod.ps1 and any external edge source this file rather than restating
+# ports. backend/.env stays the authority for the Flask ports — the only thing
+# that actually decides where they bind.
 
 [CmdletBinding()]
 param(

@@ -22,7 +22,8 @@ The frontend routes, all under the basePath — `/v17` is served at
 | `/[slug]` | One segment carries both type and id: `/v` searches visual novels, `/v17` is one |
 | `/[slug]/rg` | Relation graph for a visual novel |
 | `/u/c` | User collections — browse, search, sort, bulk-edit |
-| `/kobayashi` | Music-player showcase of a user's VN collection |
+| `/music` | The music library — one visual novel is one soundtrack |
+| `/kobayashi` | Retired showcase; redirects to `/music` |
 | `/login`, `/reset-password` | Session entry points |
 
 Run the whole stack with `.\start-prod.ps1` (add `-Build` to rebuild the

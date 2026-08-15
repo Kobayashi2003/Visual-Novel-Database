@@ -1,5 +1,5 @@
-/** The showcase's bespoke full-page background (the global wallpaper is
- *  suppressed on this route — see (main)/layout.tsx).
+/** The music library's full-page background (the global wallpaper is suppressed
+ *  on that route — see (main)/layout.tsx).
  *
  *  Deliberately quiet: no particles, no rings — just layered depth.
  *    • a static base wash so the black never reads flat;
@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from "react"
 import { motion, useMotionValue, useSpring } from "motion/react"
 
-import { usePlayer } from "./player"
+import { usePlayer } from "@/context/PlayerContext"
 
 
 // Inline SVG turbulence noise, tiled. Cheap, static, no asset request.
@@ -44,7 +44,7 @@ const band = (data: Uint8Array, from: number, to: number) => {
 }
 
 
-export function KobayashiBackground() {
+export function ReactiveBackground() {
   const { analyserRef, playing } = usePlayer()
   const [reduced, setReduced] = useState(false)
 

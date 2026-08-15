@@ -8,8 +8,8 @@ const nextConfig: NextConfig = {
   // root launcher boots it via `node .next/standalone/server.js`.
   output: "standalone",
   // Served under a path prefix, not at the origin root: a single public port
-  // (frp) fronts this app alongside others, so the root belongs to the gateway's
-  // landing page (see AppGateway/). basePath is baked in at build time — Next
+  // (frp) can front this app alongside others, so the root is not ours to take.
+  // basePath is baked in at build time — Next
   // rewrites its own asset and <Link> URLs with it — so it cannot be toggled per
   // launch; the app lives here in standalone mode too.
   //

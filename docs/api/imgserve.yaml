@@ -13,6 +13,13 @@ info:
     only so the URL matches the upstream layout — which lets Caddy serve a cache
     hit straight off disk without consulting this service at all.
 
+    Because only the type and the id identify an image, every image path below
+    also answers to the shorter forms: the `{dir}` segment and the `.jpg` suffix
+    may both be dropped, and the read route works with or without the `/img`
+    prefix. One canonical form is documented per operation rather than all of
+    them; the others resolve identically. Only the canonical read form is
+    exposed at the edge.
+
     On a miss the image is fetched from t.vndb.org and stored, then served. That
     fetch is **single-flighted**: concurrent requests for the same image wait on
     one download rather than starting several. A request that waits too long

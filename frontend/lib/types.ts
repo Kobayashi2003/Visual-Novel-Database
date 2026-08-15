@@ -524,23 +524,32 @@ export interface Mark {
   marked_at: string
 }
 
-// Read-only public view of a user's `played`/`playing` VN collections, plus
-// their VN ratings keyed by numeric mark id. Returned by the public endpoint.
-export interface PublicVNCollections {
-  username: string
-  collections: Array<{ category_name: string; marks: Mark[] }>
-  ratings: Record<number, number>
-}
-
-// Track metadata from musicserve's /meta/<vnid> (tags are best-effort nulls).
-export interface MusicMeta {
-  id: string
-  duration: number | null
-  title: string | null
+// One audio file. `ordinal` is its 1-based position in the soundtrack and is
+// how it is addressed — musicserve has no database, so a track has no id of its
+// own. `title` comes from the filename (always present); `tag_title` is what the
+// file's own tags claim, which is often missing or wrong in a hand-built library.
+export interface MusicTrack {
+  ordinal: number
+  filename: string
+  title: string
+  tag_title: string | null
   artist: string | null
   album: string | null
+  duration: number | null
   format: string
-  has_cover: boolean
+}
+
+// Every track of one visual novel — one VN is one album.
+export interface Soundtrack {
+  id: string
+  track_count: number
+  duration: number
+  results: MusicTrack[]
+}
+
+export interface SoundtrackSummary {
+  id: string
+  track_count: number
 }
 
 

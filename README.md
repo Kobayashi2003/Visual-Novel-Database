@@ -21,8 +21,13 @@ a **Japanese translation layer** for tag/trait descriptions.
 
 Caddy is the single public ingress. Each backend prefix exposes an explicit allowlist of the routes
 the frontend uses, and every allowlisted request is probed against `userserve /auth/verify` before it
-is forwarded — so **vndb, imgserve, transserve and musicserve contain no auth code at all**, and their
-admin and write routes stay reachable only on the loopback ports.
+is forwarded — so **vndb, imgserve and transserve contain no auth code at all**, and their admin and
+write routes stay reachable only on the loopback ports.
+
+The one exception is musicserve's soundtrack upload, the only write route exposed at the edge. It is
+restricted to administrators, but even there the service does no authentication of its own: the edge
+strips whatever the client sent as `X-Is-Admin` and replaces it with the probe's answer, which
+musicserve reads.
 
 > Source: [`architecture.svg`](docs/assets/architecture.svg) — edit it, then rasterise to
 > `architecture.png` at 1680×1442.
@@ -62,8 +67,8 @@ The whole app — backend, frontend and the Caddy edge — is one launcher:
 
 Caddy is the only public ingress. It listens on `:30709` and routes by path
 prefix (see `Caddyfile.snippet`); the frontend lives under **`/visual-novel-database`**,
-not at the origin root, because one public port may front several apps — see
-`../AppGateway/`. Open <http://localhost:30709>, which redirects there.
+not at the origin root, because one public port may front several apps. The bare
+root serves nothing, so open <http://localhost:30709/visual-novel-database>.
 
 > Requires **PostgreSQL**, **Redis** and **Caddy** on PATH, plus
 > [Pixi](https://pixi.sh/) for the backend env (`backend/scripts/pixi-setup.ps1`).

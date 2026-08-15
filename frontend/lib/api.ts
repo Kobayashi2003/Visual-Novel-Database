@@ -4,8 +4,8 @@ import {
   VN, Release, Character, Producer, Staff, Tag, Trait,
   VN_Small, Release_Small, Character_Small, Producer_Small,
   Staff_Small, Tag_Small, Trait_Small, User, Category, Mark,
-  VNDBQueryParams, MarksQueryParams, PaginatedResponse, PublicVNCollections,
-  RelationGraph, RelationGraphNode, MusicMeta,
+  VNDBQueryParams, MarksQueryParams, PaginatedResponse,
+  RelationGraph, RelationGraphNode, Soundtrack, SoundtrackSummary,
 } from "./types"
 import {
   VNDB_BASE_URL, IMGSERVE_BASE_URL, USERSERVE_BASE_URL, TRANSSERVE_BASE_URL,
@@ -506,23 +506,6 @@ export const api = {
     },
   },
 
-  /* Userserve: read-only public view of another user's VN collections.
-     Goes through `fetchUserserve` so the viewer's auth cookie rides along
-     (the endpoint requires a signed-in viewer); the string-keyed ratings map
-     is parsed back to numeric mark ids, mirroring `rating.get`. */
-  publicCollections: {
-    vn: async (username: string, abortSignal?: AbortSignal): Promise<PublicVNCollections> => {
-      const raw = await fetchUserserve<{
-        username: string
-        collections: Array<{ category_name: string; marks: Mark[] }>
-        ratings: Record<string, number>
-      }>(`u${username}/v/c/public`, "GET", undefined, abortSignal)
-      const ratings: Record<number, number> = {}
-      for (const [markId, value] of Object.entries(raw.ratings)) ratings[Number(markId)] = value
-      return { username: raw.username, collections: raw.collections, ratings }
-    },
-  },
-
   /* Userserve: personal 1–5 ratings, keyed by entity (independent of category) */
   rating: {
     // The backend serialises the map with string keys; parse them back to the
@@ -587,23 +570,67 @@ export const api = {
      cover are plain GETs handed straight to <audio src> / <img src> (Range
      seeking and 404s are the browser's problem), so only URL builders live
      here; metadata and batch availability are JSON calls. */
+  /* musicserve: one visual novel is one soundtrack, and a track is addressed by
+     its position in it. There is no database behind this — the folder layout on
+     disk is the index. */
   music: {
-    url: (vnid: string) => `${getBaseUrl("musicserve")}/music/${vnid}`,
-    coverUrl: (vnid: string) => `${getBaseUrl("musicserve")}/cover/${vnid}`,
+    trackUrl: (vnid: string, ordinal: number) =>
+      `${getBaseUrl("musicserve")}/soundtracks/${vnid}/tracks/${ordinal}`,
+    // 404s when the soundtrack has no cover of its own. Callers show a
+    // placeholder rather than substituting the VN's cover — a different picture.
+    coverUrl: (vnid: string) => `${getBaseUrl("musicserve")}/soundtracks/${vnid}/cover`,
 
-    meta: (vnid: string, abortSignal?: AbortSignal): Promise<MusicMeta> =>
-      fetchJson(`${getBaseUrl("musicserve")}/meta/${vnid}`, { signal: abortSignal }, "Musicserve"),
+    soundtrack: (vnid: string, abortSignal?: AbortSignal): Promise<Soundtrack> =>
+      fetchJson(`${getBaseUrl("musicserve")}/soundtracks/${vnid}`, { signal: abortSignal }, "Musicserve"),
 
-    // Which of `ids` have a track. Keys in the result echo the input ids.
+    list: (params: { page?: number; limit?: number } = {}, abortSignal?: AbortSignal) => {
+      const qs = new URLSearchParams(
+        Object.entries(params).map(([k, v]) => [k, String(v)]),
+      ).toString()
+      return fetchJson<PaginatedResponse<SoundtrackSummary>>(
+        `${getBaseUrl("musicserve")}/soundtracks${qs ? `?${qs}` : ""}`,
+        { signal: abortSignal }, "Musicserve")
+    },
+
+    // Which of `ids` have a soundtrack. Keys in the result echo the input ids.
     available: async (ids: string[], abortSignal?: AbortSignal): Promise<Record<string, boolean>> => {
       if (!ids.length) return {}
-      const data = await fetchJson<{ available: Record<string, boolean> }>(`${getBaseUrl("musicserve")}/available`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids }),
-        signal: abortSignal,
-      }, "Musicserve")
+      const data = await fetchJson<{ available: Record<string, boolean> }>(
+        `${getBaseUrl("musicserve")}/soundtracks/available`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+          signal: abortSignal,
+        }, "Musicserve")
       return data.available
+    },
+
+    /* Admin only — the edge forwards userserve's verdict, and musicserve
+       checks it. A non-admin gets 403 from the service, not from here. */
+
+    upload: async (vnid: string, files: File[], opts: { replace?: boolean } = {}) => {
+      const body = new FormData()
+      for (const f of files) body.append("files", f)
+      const url = `${getBaseUrl("musicserve")}/soundtracks/${vnid}/tracks${opts.replace ? "?replace=true" : ""}`
+      const res = await fetchWithSession(url, () => ({ method: "POST", body }))
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
+        throw new ApiError(detail.message || `Upload failed (${res.status})`, res.status, detail.error)
+      }
+      return res.json() as Promise<{ id: string; stored: string[] }>
+    },
+
+    deleteTrack: async (vnid: string, ordinal: number) => {
+      const res = await fetchWithSession(
+        `${getBaseUrl("musicserve")}/soundtracks/${vnid}/tracks/${ordinal}`,
+        () => ({ method: "DELETE" }))
+      if (!res.ok) throw new ApiError(`Delete failed (${res.status})`, res.status)
+    },
+
+    deleteSoundtrack: async (vnid: string) => {
+      const res = await fetchWithSession(
+        `${getBaseUrl("musicserve")}/soundtracks/${vnid}`, () => ({ method: "DELETE" }))
+      if (!res.ok) throw new ApiError(`Delete failed (${res.status})`, res.status)
     },
   },
 }

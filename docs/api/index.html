@@ -8,6 +8,12 @@
   // This page is a directory index. Reached without the trailing slash, every
   // relative URL on it — including the script tag below — would resolve one
   // level too high, so pin the base before the parser gets there.
+  //
+  // The address bar is corrected to match. A <base> that differs from the
+  // document's own URL turns every `href="#section"` into a cross-URL
+  // navigation instead of a scroll, which is how the sidebar links broke; the
+  // edge cannot fix this with a redirect, because it strips the prefix before
+  // routing and would match its own target.
   (function () {
     var p = location.pathname;
     if (p.endsWith('/index.html')) p = p.slice(0, -'index.html'.length);
@@ -15,6 +21,9 @@
     var base = document.createElement('base');
     base.href = p;
     document.head.appendChild(base);
+    if (p !== location.pathname) {
+      history.replaceState(null, '', p + location.search + location.hash);
+    }
   })();
 </script>
 <script src="js-yaml.min.js"></script>
@@ -61,7 +70,9 @@
   nav a .p { font-family:var(--mono); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 
   /* ---------- main ---------- */
-  main { overflow-y:auto; padding:0 0 120px; scroll-behavior:smooth }
+  /* No scroll-behavior:smooth — this container drops smooth scroll requests
+     entirely, so declaring it only made every jump-to-section do nothing. */
+  main { overflow-y:auto; padding:0 0 120px }
   .wrap { max-width:960px; padding:32px 44px }
   h2.spec-title { margin:0 0 4px; font-size:26px; letter-spacing:-.01em }
   .spec-meta { color:var(--faint); font-size:12.5px; margin-bottom:18px }
@@ -491,6 +502,39 @@ async function load(spec) {
   }
   const fromHash = () => SPECS.find(s => s.name === location.hash.match(/spec=(\w+)/)?.[1]);
   await load(fromHash() || SPECS[0]);
+
+  // The content scrolls inside <main>, not the document, so a fragment
+  // navigation has nothing to move — the document itself never scrolls. The
+  // scrolling is done here instead, and the position recorded with
+  // replaceState so nothing navigates at all.
+  //
+  // Only `instant` is used: every smooth request against this container is
+  // dropped (scrollIntoView and scrollTo alike), so asking for smooth means
+  // asking for no scroll. `main` is the offsetParent chain's scroller, and the
+  // sections' offsetTop is measured from the page, hence the delta.
+  function scrollToSection(target) {
+    const top = target.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+    main.scrollTo({ top, behavior: 'instant' });
+  }
+
+  nav.addEventListener('click', e => {
+    const link = e.target.closest('a[href^="#"]');
+    if (!link) return;
+    const hash = link.getAttribute('href');
+    const target = document.getElementById(hash.slice(1));
+    if (!target) return;
+    e.preventDefault();
+    scrollToSection(target);
+    history.replaceState(null, '', location.pathname + location.search + hash);
+  });
+
+  // A pasted deep link lands only after the spec has rendered, so the target
+  // does not exist until here.
+  const deepLink = location.hash.slice(1);
+  if (deepLink && !deepLink.startsWith('spec=')) {
+    const target = document.getElementById(deepLink);
+    if (target) scrollToSection(target);
+  }
 
   // Keeps a pasted or bookmarked #spec= working on an already-open page, and
   // makes Back step between specs rather than out of the viewer.

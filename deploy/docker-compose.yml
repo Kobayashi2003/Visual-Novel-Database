@@ -149,9 +149,13 @@ services:
       MUSICSERVE_UPSTREAM: musicserve:${MUSICSERVE_PORT:-5004}
       NEXT_UPSTREAM: frontend:${NEXT_PORT:-5010}
       IMGSERVE_IMAGE_FOLDER: /srv/images
+      # The shared snippet serves the OpenAPI specs off disk; without this the
+      # /docs route would resolve its root against Caddy's working directory.
+      API_DOCS_FOLDER: /etc/caddy/api-docs
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ../Caddyfile.snippet:/etc/caddy/Caddyfile.snippet:ro   # imported by the Caddyfile above
+      - ../docs/api:/etc/caddy/api-docs:ro                     # the API specs and their browser
       - appdata:/srv:ro           # imgserve cache (images at /srv/images), for the file_server fast path
       - caddy_data:/data          # Caddy's own writable storage
       - caddy_config:/config

@@ -1,12 +1,15 @@
-/** Page-scoped music player state for the kobayashi showcase.
+/** The application's music player: one <audio> element, mounted once.
  *
- *  Owns the single <audio> element (streaming from musicserve), the WebAudio
- *  analyser that the deck's VU display and the reactive background read from,
- *  the playlist (set by the page to the playable items of the current
- *  results), and the play-order mode (sequence / shuffle / repeat-one).
+ *  Lives here rather than on a page so playback survives navigation — starting a
+ *  track and then opening a visual novel does not stop the music.
  *
- *  Time flows through a MotionValue updated by a rAF loop while playing —
- *  consumers animate the reels / progress off it without re-rendering. */
+ *  Owns the audio element (streaming from musicserve), the WebAudio analyser the
+ *  deck's VU display and the reactive background read from, the play queue, and
+ *  the play-order mode.
+ *
+ *  Time flows through a MotionValue updated by a rAF loop while playing, so the
+ *  reels and progress animate without re-rendering their subtree.
+ */
 "use client"
 
 import {
@@ -16,38 +19,41 @@ import {
 import { useMotionValue, type MotionValue } from "motion/react"
 
 import { api } from "@/lib/api"
-import type { MusicMeta } from "@/lib/types"
+import type { MusicTrack } from "@/lib/types"
 
 
-/** What the player needs to show a track: the VN identity + display strings
- *  the page already has. Music-side metadata (tags, duration, embedded cover)
- *  is fetched lazily into `meta` when the track loads. */
-export interface Track {
+/** A queued track: the file, plus the visual novel it belongs to so the player
+ *  can name and link what is playing. musicserve has no database, so a track is
+ *  identified by its soundtrack and its position in it — see `trackKey`. */
+export interface QueueTrack extends MusicTrack {
   vnid: string
-  title: string
-  developer: string
-  /** VN cover (already content-level filtered by the caller) — the disc label
-   *  falls back to it when the track has no music-side cover. */
-  vnCover: string | null
+  /** The visual novel's title, for display. Not the track's own. */
+  vnTitle: string
+  /** Content filter verdict from the caller, applied to the cover. */
   blur: boolean
 }
 
+export const trackKey = (t: Pick<QueueTrack, "vnid" | "ordinal">) => `${t.vnid}:${t.ordinal}`
+
 /** Playback-order modes, cycled by the deck's order button:
- *  sequence — walk the playlist in display order (wrapping);
+ *  sequence — walk the queue in order (wrapping);
  *  shuffle  — jump to a random other track;
  *  repeat   — loop the current track when it ends (manual skips still step). */
 export type PlayOrder = "sequence" | "shuffle" | "repeat"
 
 interface PlayerContextValue {
-  track: Track | null
-  meta: MusicMeta | null
+  track: QueueTrack | null
   playing: boolean
   order: PlayOrder
   duration: number
   volume: number
-  playlist: Track[]
-  setPlaylist: (tracks: Track[]) => void
-  play: (track: Track) => void
+  queue: QueueTrack[]
+  /** Replace the queue and start at `startAt` (default: its first track). */
+  playQueue: (tracks: QueueTrack[], startAt?: number) => void
+  /** Add to the end of the queue without disturbing what is playing. */
+  enqueue: (tracks: QueueTrack[]) => void
+  clearQueue: () => void
+  play: (track: QueueTrack) => void
   toggle: () => void
   next: () => void
   prev: () => void
@@ -75,8 +81,8 @@ export const formatTime = (s: number) => {
   return `${m}:${sec.toString().padStart(2, "0")}`
 }
 
-const VOLUME_KEY = "kby-player-volume"
-const ORDER_KEY = "kby-player-order"
+const VOLUME_KEY = "vndb-player-volume"
+const ORDER_KEY = "vndb-player-order"
 const ORDER_CYCLE: PlayOrder[] = ["sequence", "shuffle", "repeat"]
 
 
@@ -85,13 +91,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
 
-  const [track, setTrack] = useState<Track | null>(null)
-  const [meta, setMeta] = useState<MusicMeta | null>(null)
+  const [track, setTrack] = useState<QueueTrack | null>(null)
   const [playing, setPlaying] = useState(false)
   const [order, setOrder] = useState<PlayOrder>("sequence")
   const [duration, setDuration] = useState(0)
   const [volume, setVolumeState] = useState(0.8)
-  const [playlist, setPlaylist] = useState<Track[]>([])
+  const [queue, setQueue] = useState<QueueTrack[]>([])
 
   const timeMV = useMotionValue(0)
 
@@ -107,9 +112,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (audioRef.current) audioRef.current.volume = volume
   }, [volume])
 
-  /* Wire the analyser the first time playback starts. A media element can
-     only ever be wrapped in ONE MediaElementSource, so this runs once; from
-     then on all audio flows element → analyser → speakers. */
+  /* Wire the analyser the first time playback starts. A media element can only
+     ever be wrapped in ONE MediaElementSource, so this runs once; from then on
+     all audio flows element → analyser → speakers. */
   const ensureAnalyser = useCallback(() => {
     const audio = audioRef.current
     if (!audio || audioCtxRef.current) {
@@ -131,8 +136,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  /* rAF-smooth playback clock while playing (timeupdate alone is ~4 Hz —
-     too coarse for the tonearm / progress ring). */
+  /* rAF-smooth playback clock while playing (timeupdate alone is ~4 Hz — too
+     coarse for the reels / progress ring). */
   useEffect(() => {
     if (!playing) return
     let raf = 0
@@ -145,31 +150,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => cancelAnimationFrame(raf)
   }, [playing, timeMV])
 
-  /* Music-side metadata for the loaded track (duration before the stream's
-     own metadata arrives, embedded title/artist, cover presence). */
-  useEffect(() => {
-    if (!track) { setMeta(null); return }
-    const ctrl = new AbortController()
-    api.music.meta(track.vnid, ctrl.signal).then(setMeta).catch(() => setMeta(null))
-    return () => ctrl.abort()
-  }, [track])
-
-  const play = useCallback((t: Track) => {
+  const play = useCallback((t: QueueTrack) => {
     const audio = audioRef.current
     if (!audio) return
     ensureAnalyser()
-    if (track?.vnid === t.vnid) {
+    if (track && trackKey(track) === trackKey(t)) {
       // Re-selecting the current track toggles rather than restarting.
       if (audio.paused) audio.play().catch(() => {})
       else audio.pause()
       return
     }
     setTrack(t)
-    setDuration(0)
+    // The listing already carried the duration, so the UI has a scale to draw
+    // before the stream's own metadata arrives.
+    setDuration(t.duration ?? 0)
     timeMV.set(0)
-    audio.src = api.music.url(t.vnid)
+    audio.src = api.music.trackUrl(t.vnid, t.ordinal)
     audio.play().catch(() => {})
   }, [track, ensureAnalyser, timeMV])
+
+  const playQueue = useCallback((tracks: QueueTrack[], startAt = 0) => {
+    setQueue(tracks)
+    if (tracks.length) play(tracks[Math.min(Math.max(0, startAt), tracks.length - 1)])
+  }, [play])
+
+  const enqueue = useCallback((tracks: QueueTrack[]) => {
+    setQueue(q => {
+      const seen = new Set(q.map(trackKey))
+      return [...q, ...tracks.filter(t => !seen.has(trackKey(t)))]
+    })
+  }, [])
+
+  const clearQueue = useCallback(() => setQueue([]), [])
 
   const toggle = useCallback(() => {
     const audio = audioRef.current
@@ -180,27 +192,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [track, ensureAnalyser])
 
   const step = useCallback((dir: 1 | -1) => {
-    if (!track || playlist.length === 0) return
-    const idx = playlist.findIndex(t => t.vnid === track.vnid)
-    // Current track may have dropped out of the playlist (tab/page change);
-    // fall back to the playlist edge in the travel direction.
+    if (!track || queue.length === 0) return
+    const key = trackKey(track)
+    const idx = queue.findIndex(t => trackKey(t) === key)
+    // The current track may have dropped out of the queue; fall back to the
+    // queue edge in the travel direction.
     const nextIdx = idx === -1
-      ? (dir === 1 ? 0 : playlist.length - 1)
-      : (idx + dir + playlist.length) % playlist.length
-    play(playlist[nextIdx])
-  }, [track, playlist, play])
+      ? (dir === 1 ? 0 : queue.length - 1)
+      : (idx + dir + queue.length) % queue.length
+    play(queue[nextIdx])
+  }, [track, queue, play])
 
   const playRandomOther = useCallback(() => {
-    if (playlist.length === 0) return
-    if (playlist.length === 1) { play(playlist[0]); return }
-    const cur = playlist.findIndex(t => t.vnid === track?.vnid)
-    let idx = Math.floor(Math.random() * playlist.length)
-    if (idx === cur) idx = (idx + 1) % playlist.length
-    play(playlist[idx])
-  }, [playlist, track, play])
+    if (queue.length === 0) return
+    if (queue.length === 1) { play(queue[0]); return }
+    const cur = track ? queue.findIndex(t => trackKey(t) === trackKey(track)) : -1
+    let idx = Math.floor(Math.random() * queue.length)
+    if (idx === cur) idx = (idx + 1) % queue.length
+    play(queue[idx])
+  }, [queue, track, play])
 
-  /* Manual skips honour shuffle; sequence and repeat both just step (repeat
-     only changes what happens when a track ENDS). */
+  /* Manual skips honour shuffle; sequence and repeat both just step (repeat only
+     changes what happens when a track ENDS). */
   const next = useCallback(
     () => (order === "shuffle" ? playRandomOther() : step(1)),
     [order, playRandomOther, step])
@@ -248,9 +261,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const ms = navigator.mediaSession
     if (track) {
       ms.metadata = new MediaMetadata({
-        title: meta?.title || track.title,
-        artist: meta?.artist || track.developer,
-        album: track.title,
+        title: track.title,
+        artist: track.artist || "",
+        album: track.album || track.vnTitle,
       })
     }
     ms.setActionHandler("play", () => audioRef.current?.play().catch(() => {}))
@@ -263,19 +276,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       ms.setActionHandler("previoustrack", null)
       ms.setActionHandler("nexttrack", null)
     }
-  }, [track, meta, prev, next])
+  }, [track, prev, next])
 
   const value = useMemo<PlayerContextValue>(() => ({
-    track, meta, playing, order, duration, volume, playlist,
-    setPlaylist, play, toggle, next, prev, seek, setVolume, cycleOrder,
-    timeMV, analyserRef,
-  }), [track, meta, playing, order, duration, volume, playlist,
-       play, toggle, next, prev, seek, setVolume, cycleOrder, timeMV])
+    track, playing, order, duration, volume, queue,
+    playQueue, enqueue, clearQueue, play, toggle, next, prev, seek, setVolume,
+    cycleOrder, timeMV, analyserRef,
+  }), [track, playing, order, duration, volume, queue,
+       playQueue, enqueue, clearQueue, play, toggle, next, prev, seek, setVolume, cycleOrder, timeMV])
 
   return (
     <PlayerContext.Provider value={value}>
-      {/* The one true audio element. Same-origin stream, so the analyser
-          needs no CORS handshake. */}
+      {/* The one true audio element. Same-origin stream, so the analyser needs
+          no CORS handshake. */}
       <audio
         ref={audioRef}
         preload="metadata"

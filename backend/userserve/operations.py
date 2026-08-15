@@ -653,30 +653,6 @@ def search_categories(user_id: int, category_type: str, query: str) -> List[Cate
     ).all()
 
 
-# Public-read allowlist: the only VN collections any signed-in viewer may read
-# for another user. Hardcoded here so this path can never leak a private list.
-PUBLIC_VN_COLLECTION_NAMES = frozenset({'played', 'playing'})
-
-@save_db_operation
-def get_public_vn_collections(username: str) -> Dict | None:
-    """Read-only view of a user's `played`/`playing` VN collections by username,
-    bundled with that user's VN ratings. Returns None when the user is unknown.
-    Matching on the collection name is case-insensitive; no other collection is
-    ever included, regardless of the names a user has created."""
-    user = get_user_by_username(username)
-    if not user:
-        return None
-    category_class = CATEGORY_MODEL['v']
-    categories = category_class.query.filter_by(user_id=user.id).all()
-    collections = [
-        {'category_name': c.category_name, 'marks': c.marks}
-        for c in categories
-        if c.category_name.strip().lower() in PUBLIC_VN_COLLECTION_NAMES
-    ]
-    ratings = {r.mark_id: r.rating for r in Rating.query.filter_by(user_id=user.id, type='v').all()}
-    return {'username': user.username, 'collections': collections, 'ratings': ratings}
-
-
 @save_db_operation
 def is_marked(user_id: int, category_type: str, mark_id: int) -> bool:
     category_class = CATEGORY_MODEL.get(category_type)
