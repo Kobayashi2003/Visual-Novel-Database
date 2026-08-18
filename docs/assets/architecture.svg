@@ -36,7 +36,7 @@
   <text x="78" y="238" font-size="18" font-weight="700" fill="#78350F">Caddy · :30709</text>
   <text x="78" y="262" font-size="11.5" fill="#78350F">The only public ingress. Routes by path prefix, and each backend prefix exposes an explicit allowlist of the routes the frontend actually uses.</text>
   <text x="78" y="282" font-size="11.5" fill="#78350F">Allowlisted requests are first probed with <tspan font-weight="700">forward_auth</tspan> against userserve <tspan font-family="Consolas, monospace">/auth/verify</tspan> (204 = pass, 401 = reject). Anything off the list is answered 403 and never forwarded —</text>
-  <text x="78" y="302" font-size="11.5" fill="#78350F">so <tspan font-family="Consolas, monospace">/vndb/admin</tspan>, the write routes and <tspan font-family="Consolas, monospace">/tasks/*</tspan> stay reachable only on the loopback ports. The API specs are served the same way, under the frontend basePath.</text>
+  <text x="78" y="302" font-size="11.5" fill="#78350F">so <tspan font-family="Consolas, monospace">/vndbserve/admin</tspan>, the write routes and <tspan font-family="Consolas, monospace">/tasks/*</tspan> stay reachable only on the loopback ports. The API specs are served the same way, under the frontend basePath.</text>
   <text x="78" y="322" font-size="11.5" fill="#78350F">An imgserve cache hit is served straight off disk by <tspan font-weight="700">file_server</tspan> — Flask never runs. The one write route exposed anywhere is musicserve’s upload: the probe’s <tspan font-family="Consolas, monospace">X-Is-Admin</tspan> is copied upstream, and any client-sent copy is stripped first.</text>
 
   <!-- ============ WEB TIER ============ -->
@@ -54,12 +54,12 @@
   <rect x="68" y="504" width="204" height="106" rx="8" fill="#E0E7FF" stroke="#4338CA" stroke-width="2"/>
   <text x="82" y="528" font-size="13.5" font-weight="700" fill="#312E81">Next.js · :5010</text>
   <text x="82" y="549" font-size="11" fill="#3730A3">standalone build</text>
-  <text x="82" y="566" font-size="11" fill="#3730A3">basePath /visual-novel-database</text>
+  <text x="82" y="566" font-size="11" fill="#3730A3">basePath /vndb</text>
   <text x="82" y="590" font-size="11" font-style="italic" fill="#6366F1">node — not Waitress</text>
 
-  <!-- vndb -->
+  <!-- vndbserve -->
   <rect x="292" y="504" width="204" height="106" rx="8" fill="#DCFCE7" stroke="#15803D" stroke-width="2"/>
-  <text x="306" y="528" font-size="13.5" font-weight="700" fill="#14532D">vndb · :5000</text>
+  <text x="306" y="528" font-size="13.5" font-weight="700" fill="#14532D">vndbserve · :5000</text>
   <text x="306" y="549" font-size="11" fill="#166534">VNDB mirror, search,</text>
   <text x="306" y="566" font-size="11" fill="#166534">crawl &amp; hand-edit</text>
   <text x="306" y="590" font-size="11" font-style="italic" fill="#15803D">Waitress · Celery · APScheduler</text>
@@ -97,15 +97,15 @@
   <text x="1426" y="528" font-size="13.5" font-weight="700" fill="#374151">logserve · :5005</text>
   <text x="1426" y="549" font-size="11" fill="#4B5563">dev log viewer</text>
   <text x="1426" y="566" font-size="11" font-weight="700" fill="#B91C1C">no Caddy route</text>
-  <text x="1426" y="590" font-size="11" font-style="italic" fill="#6B7280">reads the vndb database</text>
+  <text x="1426" y="590" font-size="11" font-style="italic" fill="#6B7280">reads the vndbserve database</text>
 
   <!-- ============ WORKER TIER ============ -->
   <rect x="60" y="690" width="760" height="184" rx="8" fill="none" stroke="#9CA3AF" stroke-width="1.5" stroke-dasharray="6 4"/>
   <text x="76" y="712" font-size="13" font-weight="700" fill="#374151">WORKER TIER</text>
-  <text x="184" y="712" font-size="11.5" fill="#6B7280">— separate processes; only vndb and imgserve have one</text>
+  <text x="184" y="712" font-size="11.5" fill="#6B7280">— separate processes; only vndbserve and imgserve have one</text>
 
   <rect x="78" y="728" width="352" height="128" rx="8" fill="#FEF9C3" stroke="#A16207" stroke-width="2"/>
-  <text x="92" y="752" font-size="13.5" font-weight="700" fill="#713F12">vndb Celery worker</text>
+  <text x="92" y="752" font-size="13.5" font-weight="700" fill="#713F12">vndbserve Celery worker</text>
   <text x="92" y="774" font-size="11" fill="#854D0E">pool=threads, concurrency = CPU count</text>
   <text x="92" y="792" font-size="11" fill="#854D0E">crawl · refresh · bulk edit · relation graph</text>
   <text x="92" y="818" font-size="11" fill="#854D0E">reached with <tspan font-family="Consolas, monospace">?sync=false</tspan> →</text>
@@ -125,7 +125,7 @@
 
   <rect x="878" y="728" width="238" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
   <text x="892" y="752" font-size="13" font-weight="700" fill="#374151">api.vndb.org/kana</text>
-  <text x="892" y="771" font-size="11" fill="#4B5563">entity data — fetched by vndb</text>
+  <text x="892" y="771" font-size="11" fill="#4B5563">entity data — fetched by vndbserve</text>
 
   <rect x="1136" y="728" width="238" height="56" rx="8" fill="#F3F4F6" stroke="#6B7280" stroke-width="1.5"/>
   <text x="1150" y="752" font-size="13" font-weight="700" fill="#374151">t.vndb.org</text>
@@ -149,20 +149,20 @@
   <text x="94" y="1007" font-size="11.5" fill="#1E40AF">Runs as a Windows service — the launcher never spawns it,</text>
   <text x="94" y="1025" font-size="11.5" fill="#1E40AF">it only waits for it to accept connections.</text>
   <text x="94" y="1053" font-size="11.5" fill="#1E40AF">One database per service; no cross-database queries:</text>
-  <text x="94" y="1078" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">vndb</tspan> — mirrored entities, JSONB relation columns + GIN,</text>
+  <text x="94" y="1078" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">vndbserve</tspan> — mirrored entities, JSONB relation columns + GIN,</text>
   <text x="94" y="1095" font-size="11.5" fill="#1E40AF">soft deletes, and the logs table</text>
   <text x="94" y="1118" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">imgserve</tspan> — one row per mirrored image</text>
   <text x="94" y="1140" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">userserve</tspan> — users, collections, ratings</text>
   <text x="94" y="1162" font-size="11.5" fill="#1E3A8A"><tspan font-weight="700">transserve</tspan> — term base + passage memory</text>
-  <text x="94" y="1186" font-size="11.5" font-style="italic" fill="#3B82F6">logserve reads the vndb database · musicserve has none</text>
+  <text x="94" y="1186" font-size="11.5" font-style="italic" fill="#3B82F6">logserve reads the vndbserve database · musicserve has none</text>
 
   <!-- redis -->
   <rect x="584" y="958" width="536" height="244" rx="8" fill="#FEE2E2" stroke="#B91C1C" stroke-width="2"/>
   <text x="600" y="984" font-size="15" font-weight="700" fill="#7F1D1D">Redis · :6379</text>
   <text x="600" y="1007" font-size="11.5" fill="#991B1B">One server, one logical DB per concern — so no two</text>
   <text x="600" y="1025" font-size="11.5" fill="#991B1B">consumers ever share a keyspace.</text>
-  <text x="600" y="1053" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">0</tspan>  vndb response cache</text>
-  <text x="600" y="1074" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">1</tspan>  vndb Celery broker          <tspan font-weight="700">2</tspan>  vndb Celery results</text>
+  <text x="600" y="1053" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">0</tspan>  vndbserve response cache</text>
+  <text x="600" y="1074" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">1</tspan>  vndbserve Celery broker          <tspan font-weight="700">2</tspan>  vndbserve Celery results</text>
   <text x="600" y="1095" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">3</tspan>  imgserve response cache</text>
   <text x="600" y="1116" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">4</tspan>  imgserve Celery broker   <tspan font-weight="700">5</tspan>  imgserve Celery results</text>
   <text x="600" y="1137" font-size="11.5" fill="#7F1D1D"><tspan font-weight="700">6</tspan>  userserve rate limits</text>
@@ -199,7 +199,7 @@
   <text x="852" y="356" font-size="11.5" font-weight="700" fill="#BE185D">forward_auth</text>
   <text x="852" y="373" font-size="11.5" fill="#BE185D">/auth/verify on every gated request</text>
 
-  <!-- web -> its Celery worker. vndb leaves left of the box it descends from, so
+  <!-- web -> its Celery worker. vndbserve leaves left of the box it descends from, so
        nothing shares a vertical with the store bus. -->
   <path d="M 350 610 L 350 668 L 254 668 L 254 722" fill="none" stroke="#A16207" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowYellow)"/>
   <text x="264" y="662" font-size="11" fill="#A16207">enqueue · Redis 1</text>

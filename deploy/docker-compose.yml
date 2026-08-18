@@ -8,12 +8,12 @@
 # Topology mirrors backend/launch.py's prod stack:
 #   postgres + redis  (infra)
 #   init              (one-shot: migrate + seed transserve, then exits)
-#   vndb / imgserve / userserve / transserve / musicserve  (Waitress)
-#   vndb-celery / imgserve-celery                          (crawl/image workers)
+#   vndbserve / imgserve / userserve / transserve / musicserve  (Waitress)
+#   vndbserve-celery / imgserve-celery                          (crawl/image workers)
 #   frontend          (Next.js standalone)
 #   caddy             (single public ingress on :30709)
 #
-# Only the translation memory is seeded (init.json). vndb/imgserve start empty
+# Only the translation memory is seeded (init.json). vndbserve/imgserve start empty
 # and crawl from the VNDB Kana API on their schedule (CRAWL_HOURS); imgserve
 # caches images lazily as users browse.
 # =============================================================================
@@ -88,13 +88,13 @@ services:
     command: ["bash", "/init.sh"]
 
   # ---- backend services -----------------------------------------------------
-  vndb:
+  vndbserve:
     <<: *backend
-    command: ["python", "-c", "from waitress import serve; import vndb; app=vndb.create_app(); c=app.config; serve(app, host=c['APP_HOST'], port=c['APP_PORT'], threads=c.get('WAITRESS_THREADS', 4))"]
+    command: ["python", "-c", "from waitress import serve; import vndbserve; app=vndbserve.create_app(); c=app.config; serve(app, host=c['APP_HOST'], port=c['APP_PORT'], threads=c.get('WAITRESS_THREADS', 4))"]
 
-  vndb-celery:
+  vndbserve-celery:
     <<: *backend
-    command: ["python", "-c", "from vndb import create_app; app=create_app(enable_scheduler=False); app.celery.Worker(pool='threads', concurrency=4, loglevel='info').start()"]
+    command: ["python", "-c", "from vndbserve import create_app; app=create_app(enable_scheduler=False); app.celery.Worker(pool='threads', concurrency=4, loglevel='info').start()"]
 
   imgserve:
     <<: *backend
@@ -142,7 +142,7 @@ services:
     # so changing a port there moves the service AND the route that reaches it.
     # Hardcoding them here would 502 the moment the two drifted apart.
     environment:
-      VNDB_UPSTREAM: vndb:${VNDB_PORT:-5000}
+      VNDBSERVE_UPSTREAM: vndbserve:${VNDBSERVE_PORT:-5000}
       IMGSERVE_UPSTREAM: imgserve:${IMGSERVE_PORT:-5001}
       USERSERVE_UPSTREAM: userserve:${USERSERVE_PORT:-5002}
       TRANSSERVE_UPSTREAM: transserve:${TRANSSERVE_PORT:-5003}
@@ -160,7 +160,7 @@ services:
       - caddy_data:/data          # Caddy's own writable storage
       - caddy_config:/config
     depends_on:
-      - vndb
+      - vndbserve
       - imgserve
       - userserve
       - transserve

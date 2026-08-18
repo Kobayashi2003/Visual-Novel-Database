@@ -1,4 +1,4 @@
-"""A developer's view of the vndb `logs` table: browse, filter, replay.
+"""A developer's view of the vndbserve `logs` table: browse, filter, replay.
 
 Replay re-executes a logged query against the database, which is why this service
 has no route at the edge and is reachable on loopback only.
@@ -144,7 +144,7 @@ def logs_replay(log_id):
     """Re-run the query captured by a log entry and return its fresh result.
 
     Remote entries are re-POSTed to the VNDB Kana API; local entries re-execute
-    their compiled SQL against the vndb database. Replay does not create a new
+    their compiled SQL against the vndbserve database. Replay does not create a new
     log entry."""
     entry = operations.get_log(log_id)
     if entry is None:

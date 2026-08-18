@@ -2,7 +2,7 @@
  *
  *  One visual novel is one album, so the library is a list of visual novels that
  *  have a soundtrack — never a flat list of tracks. musicserve knows only ids
- *  and filenames, so the titles and cover art here come from vndb and imgserve,
+ *  and filenames, so the titles and cover art here come from vndbserve and imgserve,
  *  joined client-side against the ids musicserve reports.
  *
  *  Two views over the same data: a list that expands a soundtrack in place, and
@@ -29,7 +29,7 @@ import { UploadPanel } from "./_components/UploadPanel"
 
 export type View = "list" | "grid"
 
-/** A library entry: what musicserve knows, joined with what vndb knows. */
+/** A library entry: what musicserve knows, joined with what vndbserve knows. */
 export interface Album {
   vnid: string
   trackCount: number
@@ -50,7 +50,7 @@ export default function MusicPage() {
   const [openVnid, setOpenVnid] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
 
-  /* Two round trips, not one per album: musicserve returns the ids, then vndb
+  /* Two round trips, not one per album: musicserve returns the ids, then vndbserve
      is asked for all of them at once. */
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)

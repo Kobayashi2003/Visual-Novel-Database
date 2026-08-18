@@ -8,11 +8,11 @@ from logserve import db
 class LogEntry(db.Model):
     """Read/prune-side mapping of the `logs` table.
 
-    Mirrors vndb.database.models.LogEntry column-for-column: that model is the
+    Mirrors vndbserve.database.models.LogEntry column-for-column: that model is the
     *writer* (the local/remote search backends persist entries through
-    vndb.search.common.log_search), and this one is the *reader* used by the
+    vndbserve.search.common.log_search), and this one is the *reader* used by the
     logserve diagnostic API. Keep the two definitions in sync — logserve does
-    NOT run create_all(), so the table is whatever vndb's migrations produced.
+    NOT run create_all(), so the table is whatever vndbserve's migrations produced.
 
     `details` is a free-form JSONB blob. The conventional keys logserve knows
     about:

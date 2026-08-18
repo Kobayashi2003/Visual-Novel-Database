@@ -12,7 +12,7 @@
 # Auth lives here, not in the backends. Each backend prefix exposes an explicit
 # allowlist of the routes the frontend uses (everything else 403s without being
 # forwarded) and gates them with forward_auth against userserve /auth/verify.
-# vndb / imgserve / transserve therefore hold no auth code at all, and their
+# vndbserve / imgserve / transserve therefore hold no auth code at all, and their
 # admin and write routes remain reachable on the loopback ports only.
 # userserve is exempt: every one of its routes already guards itself.
 # musicserve is the one place a write route is exposed here — its upload — and
@@ -24,12 +24,13 @@
 #     and claiming it here would swallow every other app's routes. (One nested
 #     inside a handle_path is fine — it is scoped to it, like the imgserve
 #     cache-miss fallback below.)
-#   - Prefix named matchers with the app (@vndb_*). On a shared edge every app's
-#     snippet is imported into one site block, and matcher names are scoped to it.
+#   - Prefix named matchers with the project (@vndb_*). On a shared edge every
+#     project's snippet is imported into one site block, and matcher names are
+#     scoped to it.
 #   - Backend prefixes stay top-level, not under the frontend's basePath:
 #     lib/constants.ts sends them absolute, and basePath does not rewrite fetch()
-#     URLs. That is also why the frontend is /visual-novel-database, not /vndb —
-#     /vndb is the Flask API's.
+#     URLs. That is also why the API prefix is /vndbserve, not /vndb —
+#     /vndb is the frontend's.
 #
 # handle_path strips the prefix, so each Flask app sees its own route shape
 # (/img/..., /login, /v123).
@@ -89,19 +90,19 @@ handle_path /userserve/* {
 	reverse_proxy {$USERSERVE_UPSTREAM:127.0.0.1:5002}
 }
 
-handle_path /vndb/* {
+handle_path /vndbserve/* {
 	route {
 		# The query routes only: /v, /v17, /v17/rg and the same for r c p s g i.
 		# Keeps /admin, /tasks/*, /trash/* and the CRUD resource routes loopback-only.
-		@vndb_api {
+		@vndbserve_api {
 			method GET HEAD
 			path_regexp ^/[vrcpsgi]\d*(/rg)?$
 		}
-		handle @vndb_api {
+		handle @vndbserve_api {
 			forward_auth {$USERSERVE_UPSTREAM:127.0.0.1:5002} {
 				uri /auth/verify
 			}
-			reverse_proxy {$VNDB_UPSTREAM:127.0.0.1:5000}
+			reverse_proxy {$VNDBSERVE_UPSTREAM:127.0.0.1:5000}
 		}
 		handle {
 			respond 403
@@ -198,9 +199,9 @@ handle_path /musicserve/* {
 # would for the frontend.
 #
 # Must stay above the frontend block: this path sits inside the basePath, so the
-# `/visual-novel-database/*` matcher below would otherwise claim it and Next
+# `/vndb/*` matcher below would otherwise claim it and Next
 # would answer with its catch-all route.
-handle_path /visual-novel-database/docs* {
+handle_path /vndb/docs* {
 	route {
 		# forward_auth written out, so a rejected probe can answer two ways. A
 		# browser navigation gets the login page — the access token lasts 30
@@ -220,7 +221,7 @@ handle_path /visual-novel-database/docs* {
 			}
 			@vndb_docs_deny status 401
 			handle_response @vndb_docs_deny {
-				redir @vndb_docs_page /visual-novel-database/login?next=/visual-novel-database/docs/ 302
+				redir @vndb_docs_page /vndb/login?next=/vndb/docs/ 302
 				header Content-Type application/json
 				respond `{"error":"unauthorized","message":"Not signed in."}` 401
 			}
@@ -237,9 +238,9 @@ handle_path /visual-novel-database/docs* {
 
 # Next.js, under the basePath baked in at build time — so `handle`, not
 # handle_path: the prefix must survive. The bare prefix is matched too because
-# Next has trailingSlash off and 308s /visual-novel-database/ to
-# /visual-novel-database, which `/visual-novel-database/*` alone would miss.
-@vndb_frontend path /visual-novel-database /visual-novel-database/*
+# Next has trailingSlash off and 308s /vndb/ to
+# /vndb, which `/vndb/*` alone would miss.
+@vndb_frontend path /vndb /vndb/*
 handle @vndb_frontend {
 	reverse_proxy {$NEXT_UPSTREAM:127.0.0.1:5010}
 }

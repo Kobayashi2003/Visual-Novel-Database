@@ -13,9 +13,9 @@ const nextConfig: NextConfig = {
   // rewrites its own asset and <Link> URLs with it — so it cannot be toggled per
   // launch; the app lives here in standalone mode too.
   //
-  // It is `/visual-novel-database` rather than `/vndb` because `/vndb` is already
-  // the Flask API's prefix (see lib/constants.ts) and the two would collide.
-  basePath: "/visual-novel-database",
+  // It is `/vndb` — the Flask API sits at `/vndbserve` (see lib/constants.ts),
+  // so the two prefixes cannot collide.
+  basePath: "/vndb",
   images: {
     // Skip Next.js's server-side image optimizer. Both image-source modes
     // already deliver appropriately-sized images — imgserve caches them and
@@ -26,22 +26,22 @@ const nextConfig: NextConfig = {
     // on, or "direct" image source breaks.
     unoptimized: true,
   },
-  // Dev-only proxy: in prod Caddy intercepts /vndb, /imgserve, /userserve
+  // Dev-only proxy: in prod Caddy intercepts /vndbserve, /imgserve, /userserve
   // before they reach Next.js (see Caddyfile.snippet), so these rewrites are a
   // no-op in prod. In dev (`next dev` with no Caddy), the browser hits Next.js
   // directly on :5010 and these rewrites forward to the Flask ports.
   //
   // Every source sets `basePath: false`. Next otherwise prefixes a rewrite's
-  // source with basePath, which would make these match /visual-novel-database/vndb/*
+  // source with basePath, which would make these match /vndb/vndbserve/*
   // — but lib/constants.ts sends the backends absolute, unprefixed paths
-  // (`/vndb`, `/imgserve`, …), matching the top-level routes Caddy serves them on
+  // (`/vndbserve`, `/imgserve`, …), matching the top-level routes Caddy serves them on
   // in prod. Without `basePath: false` the sources would never match in dev and
   // every backend call would 404.
   async rewrites() {
     return [
       {
-        source: "/vndb/:path*",
-        destination: `${process.env.VNDB_BASE_URL || "http://localhost:5000"}/:path*`,
+        source: "/vndbserve/:path*",
+        destination: `${process.env.VNDBSERVE_BASE_URL || "http://localhost:5000"}/:path*`,
         basePath: false,
       },
       {

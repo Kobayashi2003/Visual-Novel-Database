@@ -13,7 +13,7 @@ class Config:
     APP_PORT = int(os.environ['TRANSSERVE_PORT'])
 
     # Database configuration — the term base lives in its own Postgres DB,
-    # peer to vndb / imgserve / userserve.
+    # peer to vndbserve / imgserve / userserve.
     SQLALCHEMY_DATABASE_URI = os.environ['TRANSSERVE_DB_URL']
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {

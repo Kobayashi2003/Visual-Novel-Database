@@ -8,7 +8,7 @@
 Builds a ProcSpec list and hands it to procserve.Supervisor, which does the
 topological start, log aggregation and reverse-topological shutdown.
 
-Stacks: Redis + vndb/imgserve Celery workers + the Flask servers. dev adds the
+Stacks: Redis + vndbserve/imgserve Celery workers + the Flask servers. dev adds the
 Flower dashboards and uses the Flask dev server; prod uses Waitress.
 
 This launcher owns the BACKEND only. The Caddy edge is a whole-app concern — it
@@ -41,7 +41,7 @@ from procserve import ProcSpec, Supervisor
 # Load backend/.env into the parent process *before* the spec-makers run —
 # they read PG_DATA, DATA_FOLDER, the celery broker / flower ports,
 # etc. from os.environ. The Flask children also load .env themselves (see
-# vndb/config.py), but that's too late for the launcher's own decisions.
+# vndbserve/config.py), but that's too late for the launcher's own decisions.
 load_dotenv()
 
 # Consolidate logs under the repo-root logs/ dir (launch.py lives in backend/,
@@ -213,12 +213,12 @@ def build_specs(mode: str, *, use_waitress: bool) -> List[ProcSpec]:
     only) and Waitress-vs-Flask-dev for the Flask apps.
     """
     specs: List[Optional[ProcSpec]] = [make_redis_spec()]
-    for app in ("vndb", "imgserve"):
+    for app in ("vndbserve", "imgserve"):
         specs.append(make_celery_spec(app))
         if mode == "dev":
             specs.append(make_flower_spec(app))
         specs.append(make_flask_spec(app, use_waitress=use_waitress))
-    # logserve is a developer diagnostics tool over the vndb `logs` table. It has
+    # logserve is a developer diagnostics tool over the vndbserve `logs` table. It has
     # no route in Caddyfile.snippet, so it stays loopback-only and is never
     # reachable through the public edge.
     for app in ("userserve", "transserve", "musicserve", "logserve"):

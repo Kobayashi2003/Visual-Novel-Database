@@ -29,7 +29,7 @@ every backend by path prefix. Everything else is internal.
 | --- | --- | --- |
 | `caddy` | public ingress | **30709** (published) |
 | `frontend` | Next.js standalone | 5010 |
-| `vndb` / `vndb-celery` | VN data API + crawl worker | 5000 |
+| `vndbserve` / `vndbserve-celery` | VN data API + crawl worker | 5000 |
 | `imgserve` / `imgserve-celery` | image cache + fetch worker | 5001 |
 | `userserve` | accounts / auth | 5002 |
 | `transserve` | translation | 5003 |
@@ -48,7 +48,7 @@ docker compose up -d --build
 ```
 
 Open <http://localhost:30709>. `init` runs first (DBs + migrations + seed), then
-the services start. Data stays empty until `vndb`/`imgserve` crawl — set
+the services start. Data stays empty until `vndbserve`/`imgserve` crawl — set
 `CRAWL_HOURS=0-23` in `.env` to populate immediately, then narrow it again.
 
 On Windows, run the same commands **inside the WSL2 distro** (e.g.
@@ -56,7 +56,7 @@ On Windows, run the same commands **inside the WSL2 distro** (e.g.
 
 ```bash
 docker compose ps             # status (init = Exited 0; rest = Up)
-docker compose logs -f vndb   # tail a service
+docker compose logs -f vndbserve   # tail a service
 docker compose down [-v]      # stop (-v also wipes data volumes)
 ```
 
@@ -95,12 +95,12 @@ plus `network: host` under each `build:` in `docker-compose.yml`.
 
 **3. Runtime service outbound.** Keep services on the **bridge** network — chiefly
 so Caddy stays the *only* exposed port (network isolation: just `:30709` is
-published), and as a bonus service-name DNS (`vndb:5000`) keeps working. A bridge
+published), and as a bonus service-name DNS (`vndbserve:5000`) keeps working. A bridge
 container cannot reach the Windows loopback, so the proxy must be a **host-routable
 address (the Windows LAN IP), not `127.0.0.1`**, with internal service names excluded:
 
 ```yaml
-vndb:
+vndbserve:
   environment:
     HTTP_PROXY: http://<windows-LAN-IP>:7890
     HTTPS_PROXY: http://<windows-LAN-IP>:7890

@@ -68,7 +68,7 @@ def hello_world():
 @api_bp.route('/soundtracks', methods=['GET'])
 def soundtracks():
     """Every visual novel with at least one track. Only ids and counts — the
-    caller already has the titles and covers from vndb and imgserve."""
+    caller already has the titles and covers from vndbserve and imgserve."""
     folder = _music_folder()
     ids = list_soundtracks(folder)
     total = len(ids)

@@ -13,10 +13,10 @@ class Config:
     APP_PORT = int(os.environ['LOGSERVE_PORT'])
 
     # Database configuration — logserve reads (and prunes) the `logs` table that
-    # the vndb search backends write to, so it points at the *vndb* database by
+    # the vndbserve search backends write to, so it points at the *vndbserve* database by
     # default rather than a peer DB of its own. Override LOGSERVE_DB_URL only if
     # the logs table is ever relocated.
-    SQLALCHEMY_DATABASE_URI = os.environ.get('LOGSERVE_DB_URL') or os.environ['VNDB_DB_URL']
+    SQLALCHEMY_DATABASE_URI = os.environ.get('LOGSERVE_DB_URL') or os.environ['VNDBSERVE_DB_URL']
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_pre_ping': True,

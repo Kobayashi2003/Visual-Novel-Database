@@ -7,7 +7,7 @@
 #      routes are in ./Caddyfile.snippet, upstreams from ./caddy-env.ps1.
 #
 # The edge lives here rather than in backend/launch.py because it fronts BOTH
-# halves — routing /visual-novel-database to Next and /vndb, /imgserve, … to
+# halves — routing /vndb to Next and /vndbserve, /imgserve, … to
 # Flask. It is needed in dev too: `next dev`'s rewrites proxy the backend calls
 # through it (see frontend/.env.local).
 #
@@ -132,13 +132,13 @@ function Test-PgPortOpen {
 }
 
 function Resolve-PgHostPort {
-    # Pull host:port out of VNDB_DB_URL in backend/.env so the readiness probe
+    # Pull host:port out of VNDBSERVE_DB_URL in backend/.env so the readiness probe
     # hits the same cluster the app connects to. Defaults to localhost:5432.
     $result = @{ TargetHost = 'localhost'; Port = 5432 }
     $envFile = Join-Path $backendDir '.env'
     if (Test-Path $envFile) {
         foreach ($line in Get-Content $envFile) {
-            if ($line -match '^\s*VNDB_DB_URL\s*=\s*(.+?)\s*$') {
+            if ($line -match '^\s*VNDBSERVE_DB_URL\s*=\s*(.+?)\s*$') {
                 $url = $Matches[1].Trim().Trim('"').Trim("'")
                 if ($url -match '@([^:/@]+):(\d+)/') {
                     $result.TargetHost = $Matches[1]
@@ -269,7 +269,7 @@ try {
         # ======================= DEV STARTUP ===========================
         # Dev stack: `pixi run dev` (Flask dev servers + Flower) plus `next dev`. The
         # browser hits Next.js directly on :$NextPort; its rewrites
-        # (frontend/next.config.ts, frontend/.env.local) proxy /vndb, /imgserve, … back
+        # (frontend/next.config.ts, frontend/.env.local) proxy /vndbserve, /imgserve, … back
         # through Caddy, which is why the edge runs in dev too.
         if ($Build) {
             Write-Host "[WARN] -Build is ignored in -Dev mode; next dev compiles on demand." -ForegroundColor Yellow

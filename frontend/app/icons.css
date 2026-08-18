@@ -1,6 +1,6 @@
 /* Sprites live beside this file, not in public/, so the bundler emits them and
    the URL picks up the basePath. Root-absolute url(/icons.png) 404s: the app is
-   served under /visual-novel-database. */
+   served under /vndb. */
 
 [class^="icon-lang-"] {
   background-image: url(./icons.png);

@@ -113,5 +113,5 @@ dev = "python launch.py dev"
 dev-waitress = "python launch.py dev --waitress"
 prod = "python launch.py prod"
 # DB migration CLI (migration.py). Forward args after `--`, e.g.
-#     pixi run migrate -- vndb upgrade
+#     pixi run migrate -- upgrade vndbserve
 migrate = "python migration.py"

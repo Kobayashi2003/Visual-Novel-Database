@@ -62,7 +62,7 @@ class ExtSQLAchemy(Extension):
     def create(self, app):
         db = SQLAlchemy(app)
         wait_for_db(db, app)
-        # NOTE: no db.create_all() here. The `logs` table is owned by vndb's
+        # NOTE: no db.create_all() here. The `logs` table is owned by vndbserve's
         # migrations; logserve is a read/prune consumer of that existing table,
         # so it must not try to (re)create the schema.
         return db

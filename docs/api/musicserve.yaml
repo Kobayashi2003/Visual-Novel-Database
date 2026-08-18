@@ -17,7 +17,7 @@ info:
     reference to a track — the play queue lives in the browser.
 
     This service knows only ids, filenames and tags. Titles and cover art for the
-    visual novels themselves come from vndb and imgserve; a client joins them by
+    visual novels themselves come from vndbserve and imgserve; a client joins them by
     id.
 
     Uploading is the **only write route the edge exposes for any service**. It is
@@ -46,7 +46,7 @@ paths:
       summary: Every visual novel that has a soundtrack
       description: |
         Ids and track counts only — the caller already has the titles and covers
-        from vndb and imgserve.
+        from vndbserve and imgserve.
       parameters:
         - name: page
           in: query

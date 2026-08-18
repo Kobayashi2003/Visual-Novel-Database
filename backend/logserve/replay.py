@@ -1,14 +1,14 @@
 """Replay a logged search — re-run the exact query a log entry recorded.
 
 Two flavours, keyed on details['from'] (stamped by
-vndb.search.common.log_search):
+vndbserve.search.common.log_search):
 
   - remote: re-POST the recorded {url, payload} to the VNDB Kana API and
     return the fresh HTTP status + body.
   - local:  re-execute the recorded compiled SQL (details['query']) against
-    the vndb database and return the rows.
+    the vndbserve database and return the rows.
 
-Replay does NOT go through the vndb search functions, so it does not itself
+Replay does NOT go through the vndbserve search functions, so it does not itself
 append a new log entry — it's a faithful re-issue of the captured request.
 """
 

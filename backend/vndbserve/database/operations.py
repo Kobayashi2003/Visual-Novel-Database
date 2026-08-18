@@ -1,0 +1,266 @@
+"""Every read and write against the mirrored tables.
+
+The only layer that touches the session. `@db_transaction` wraps each writer, so
+the functions below are written as if nothing fails: no explicit commit, no
+rollback. A reader returns the row or None; a writer returns the row it wrote.
+
+Rows are soft-deleted (`deleted_at` is set and the row stays), so `get_inactive` /
+`recover` / `cleanup` operate on the trash while the normal reads filter it out.
+`updatable` is the freshness gate that keeps a hand-edited row from being
+overwritten by a crawl.
+"""
+
+from typing import Any
+from datetime import datetime, timezone, timedelta
+from functools import wraps
+
+from sqlalchemy import asc, desc
+
+from vndbserve import db
+from vndbserve.logger import logger
+from vndbserve.utils.ids import formatId
+from .models import MODEL_MAP, ModelType
+
+
+def db_transaction(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            with db.session.begin_nested():
+                result = func(*args, **kwargs)
+            db.session.commit()
+            return result
+        except Exception:
+            db.session.rollback()
+            logger.exception(f"{func.__name__} failed")
+            return None
+    return wrapper
+
+
+def _order_by(model, sort: str, reverse: bool):
+    if sort not in {c.name for c in model.__table__.columns}:
+        raise ValueError(f"Invalid sort column: {sort}")
+    return (desc if reverse else asc)(getattr(model, sort))
+
+
+def exists(type: str, id: str) -> bool:
+    id = formatId(type, id)
+    model = MODEL_MAP[type]
+    item = db.session.get(model, id)
+    return item is not None and item.deleted_at is None
+
+def count_all(type: str) -> int:
+    model = MODEL_MAP[type]
+    return db.session.query(model).filter(model.deleted_at.is_(None)).count()
+
+def count_inactive_all(type: str) -> int:
+    model = MODEL_MAP[type]
+    return db.session.query(model).filter(model.deleted_at.is_not(None)).count()
+
+def updatable(type: str, id: str, update_interval: timedelta = timedelta(minutes=10)) -> bool:
+    """Whether a background (automatic) crawl may overwrite this row.
+
+    Manually edited rows (edited_at set) are never updatable here — an
+    automatic sync would silently destroy the user's edits. Explicit refresh
+    paths (update_resource_task) bypass this check and clear edited_at.
+    Freshness is judged on crawled_at (when the row was last written from the
+    remote API), not updated_at, which any write (including edits) bumps.
+    """
+    id = formatId(type, id)
+    # `get` filters soft-deleted rows, so a missing item covers both
+    # "never existed" and "deleted" — both are free to be written.
+    item = get(type, id)
+    if not item:
+        return True
+    if item.edited_at is not None:
+        return False  # Never auto-overwrite manual edits
+    last_crawl = item.crawled_at or item.updated_at
+    if last_crawl is None:
+        return True  # Allow update if item has never been crawled
+    return datetime.now(timezone.utc) - last_crawl > update_interval
+
+
+def get(type: str, id: str) -> ModelType | None:
+    id = formatId(type, id)
+    model = MODEL_MAP[type]
+    item = (
+        db.session.query(model)
+        .filter(model.id == id)
+        .filter(model.deleted_at.is_(None))
+        .first()
+    )
+    return item
+
+def get_all(type: str, page: int | None = None, limit: int | None = None, sort: str = 'id', reverse: bool = False) -> list[ModelType]:
+    model = MODEL_MAP[type]
+    query = db.session.query(model).filter(model.deleted_at.is_(None))
+    query = query.order_by(_order_by(model, sort, reverse))
+    if page and limit:
+        page = max(1, page)
+        limit = min(max(1, limit), 100)
+        query = query.offset((page - 1) * limit).limit(limit)
+    return query.all()
+
+# Lifecycle columns: maintained here from `source`, never writable by a caller.
+PROTECTED_COLUMNS = {'id', 'created_at', 'updated_at', 'crawled_at', 'edited_at', 'deleted_at'}
+
+# `source` records what kind of write this is:
+#   'crawl' (default) — data fetched from the remote API; stamps crawled_at
+#   'edit'            — a manual user edit; stamps edited_at, which freezes the
+#                       row against automatic sync (see `updatable`)
+#   'refresh'         — explicit re-crawl of one row; stamps crawled_at and
+#                       clears edited_at, returning the row to the sync cycle
+#   None              — maintenance write (e.g. backfill); stamps neither
+def create(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl') -> ModelType | None:
+    id = formatId(type, id)
+    model = MODEL_MAP[type]
+    data = {k: v for k, v in data.items() if k != 'id'}
+    if exists(type, id):
+        return None
+    # Use cleanup to ensure deletion of any existing inactive items
+    cleanup(type, id)
+    item = model(id=id, **data)
+    if source == 'crawl':
+        item.crawled_at = datetime.now(timezone.utc)
+    elif source == 'edit':
+        item.edited_at = datetime.now(timezone.utc)
+    db.session.add(item)
+    db.session.flush()
+    return item
+
+def update(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl') -> ModelType | None:
+    id = formatId(type, id)
+    item = get(type, id)
+    if not item:
+        return None
+    columns = {c.name for c in item.__table__.columns}
+    for key, value in data.items():
+        if key in columns and key not in PROTECTED_COLUMNS:
+            setattr(item, key, value)
+    now = datetime.now(timezone.utc)
+    item.updated_at = now
+    if source == 'crawl':
+        item.crawled_at = now
+    elif source == 'edit':
+        item.edited_at = now
+    elif source == 'refresh':
+        item.crawled_at = now
+        item.edited_at = None
+    db.session.flush()
+    return item
+
+def delete(type: str, id: str) -> ModelType | None:
+    id = formatId(type, id)
+    item = get(type, id)
+    if not item:
+        return None
+    item.deleted_at = datetime.now(timezone.utc)
+    db.session.flush()
+    return item
+
+def delete_all(type: str) -> int:
+    model = MODEL_MAP[type]
+    current_time = datetime.now(timezone.utc)
+    count = (
+        db.session.query(model)
+        .filter(model.deleted_at.is_(None))
+        .update({model.deleted_at: current_time})
+    )
+    db.session.flush()
+    return count
+
+
+def get_inactive(type: str, id: str) -> ModelType | None:
+    id = formatId(type, id)
+    model = MODEL_MAP[type]
+    item = (
+        db.session.query(model)
+        .filter(model.id == id)
+        .filter(model.deleted_at.is_not(None))
+        .first()
+    )
+    return item
+
+def get_inactive_all(type: str, page: int | None = None, limit: int | None = None, sort: str = 'id', reverse: bool = False) -> list[ModelType]:
+    model = MODEL_MAP[type]
+    query = db.session.query(model).filter(model.deleted_at.is_not(None))
+    query = query.order_by(_order_by(model, sort, reverse))
+    if page and limit:
+        page = max(1, page)
+        limit = min(max(1, limit), 100)
+        query = query.offset((page - 1) * limit).limit(limit)
+    return query.all()
+
+def recover(type: str, id: str) -> ModelType | None:
+    id = formatId(type, id)
+    item = get_inactive(type, id)
+    if not item:
+        return None
+    item.deleted_at = None
+    db.session.flush()
+    return item
+
+def recover_all(type: str) -> int:
+    model = MODEL_MAP[type]
+    count = (
+        db.session.query(model)
+        .filter(model.deleted_at.is_not(None))
+        .update({model.deleted_at: None})
+    )
+    db.session.flush()
+    return count
+
+def cleanup(type: str, id: str) -> ModelType | None:
+    id = formatId(type, id)
+    item = get_inactive(type, id)
+    if not item:
+        return None
+    db.session.delete(item)
+    db.session.flush()
+    return item
+
+def cleanup_all(type: str) -> int:
+    items = get_inactive_all(type)
+    count = len(items)
+    for item in items:
+        db.session.delete(item)
+    db.session.flush()
+    return count
+
+
+@db_transaction
+def get_save(*args, **kwargs) -> ModelType | None: return get(*args, **kwargs)
+
+@db_transaction
+def get_all_save(*args, **kwargs) -> list[ModelType]: return get_all(*args, **kwargs)
+
+@db_transaction
+def create_save(*args, **kwargs) -> ModelType | None: return create(*args, **kwargs)
+
+@db_transaction
+def update_save(*args, **kwargs) -> ModelType | None: return update(*args, **kwargs)
+
+@db_transaction
+def delete_save(*args, **kwargs) -> ModelType | None: return delete(*args, **kwargs)
+
+@db_transaction
+def delete_all_save(*args, **kwargs) -> int: return delete_all(*args, **kwargs)
+
+
+@db_transaction
+def get_inactive_save(*args, **kwargs) -> ModelType | None: return get_inactive(*args, **kwargs)
+
+@db_transaction
+def get_inactive_all_save(*args, **kwargs) -> list[ModelType]: return get_inactive_all(*args, **kwargs)
+
+@db_transaction
+def recover_save(*args, **kwargs) -> ModelType | None: return recover(*args, **kwargs)
+
+@db_transaction
+def recover_all_save(*args, **kwargs) -> int: return recover_all(*args, **kwargs)
+
+@db_transaction
+def cleanup_save(*args, **kwargs) -> int: return cleanup(*args, **kwargs)
+
+@db_transaction
+def cleanup_all_save(*args, **kwargs) -> dict[str, int]: return cleanup_all(*args, **kwargs)

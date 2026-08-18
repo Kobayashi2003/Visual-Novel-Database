@@ -1,6 +1,6 @@
 /** Admin upload: pick a visual novel, attach its soundtrack, send it in one go.
  *
- *  The visual novel is chosen by searching vndb rather than typed as an id, so
+ *  The visual novel is chosen by searching vndbserve rather than typed as an id, so
  *  the files land on a work the uploader can see rather than a number they had
  *  to look up.
  *

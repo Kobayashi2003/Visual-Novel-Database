@@ -168,7 +168,7 @@
 // path prefix on this same origin — so "try it" runs against the live stack with
 // the session cookie already attached.
 const SPECS = [
-  { file:'vndb.yaml',       name:'vndb',       prefix:'/vndb' },
+  { file:'vndbserve.yaml',  name:'vndbserve',  prefix:'/vndbserve' },
   { file:'userserve.yaml',  name:'userserve',  prefix:'/userserve' },
   { file:'imgserve.yaml',   name:'imgserve',   prefix:'/imgserve' },
   { file:'transserve.yaml', name:'transserve', prefix:'/transserve' },
@@ -177,7 +177,7 @@ const SPECS = [
 const METHODS = ['get','post','put','patch','delete'];
 
 // This page is a directory index, so a visit without the trailing slash would
-// resolve a relative "vndb.yaml" one level too high. Derive the directory once
+// resolve a relative "vndbserve.yaml" one level too high. Derive the directory once
 // and build spec URLs from it, so every form of the URL works.
 const HERE = (() => {
   const p = location.pathname;

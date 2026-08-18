@@ -27,7 +27,7 @@ docker compose up -d --build
 # Probe the app itself, not the origin root: the root is just a redirect served by
 # Caddy, which would answer as soon as the edge is up and tell us nothing about
 # whether the frontend behind it is ready.
-url="http://localhost:30709/visual-novel-database"
+url="http://localhost:30709/vndb"
 printf ">> Waiting for %s " "$url"
 ready=""
 for _ in $(seq 1 90); do

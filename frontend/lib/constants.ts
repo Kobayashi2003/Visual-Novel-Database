@@ -4,11 +4,11 @@
 /* ─── Backend routes ───────────────────────────────────────────────────────── */
 // The backend services sit behind path-prefix routes. In prod, Caddy intercepts
 // these prefixes and proxies directly to the matching Flask backend (see
-// Caddyfile's `handle_path /vndb/*` etc.). In dev, Next.js' rewrites in
+// Caddyfile's `handle_path /vndbserve/*` etc.). In dev, Next.js' rewrites in
 // next.config.ts forward them to the same Flask ports. Either way, the
 // browser only ever talks to a single origin.
 
-export const VNDB_BASE_URL = "/vndb"
+export const VNDBSERVE_BASE_URL = "/vndbserve"
 export const IMGSERVE_BASE_URL = "/imgserve"
 export const USERSERVE_BASE_URL = "/userserve"
 export const TRANSSERVE_BASE_URL = "/transserve"

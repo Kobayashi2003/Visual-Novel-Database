@@ -13,7 +13,7 @@
 
 	# The frontend lives under its basePath, so the bare root serves nothing.
 	handle / {
-		redir * /visual-novel-database permanent
+		redir * /vndb permanent
 	}
 
 	# Anything the snippet did not claim. Without this Caddy answers an empty 200,

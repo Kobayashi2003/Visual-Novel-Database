@@ -1,11 +1,11 @@
-"""logserve — developer-facing diagnostics over the vndb `logs` table.
+"""logserve — developer-facing diagnostics over the vndbserve `logs` table.
 
-The vndb local/remote search backends persist an entry per query into the
-`logs` table (see vndb.search.common.log_search). logserve is a small,
+The vndbserve local/remote search backends persist an entry per query into the
+`logs` table (see vndbserve.search.common.log_search). logserve is a small,
 read/prune-side Flask API over that same table: it lets a developer query,
 filter, inspect, delete and *replay* those recorded searches.
 
-It is intentionally a dev tool: it connects to the vndb database directly and
+It is intentionally a dev tool: it connects to the vndbserve database directly and
 is NOT published through the Caddy edge (../../Caddyfile.snippet has no route for
 it), so it is only reachable on its loopback dev port.
 """
@@ -44,7 +44,7 @@ def create_app(config_class=Config, enable_scheduler=True):
     db = ExtSQLAchemy(app)
 
     # Register the model on the metadata. No create_all(): the `logs` table is
-    # owned by vndb's migrations; logserve only reads/prunes it.
+    # owned by vndbserve's migrations; logserve only reads/prunes it.
     from . import models  # noqa: F401  (registers LogEntry on db.metadata)
 
     @app.errorhandler(Exception)

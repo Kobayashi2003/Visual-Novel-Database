@@ -8,7 +8,7 @@ import {
   RelationGraph, RelationGraphNode, Soundtrack, SoundtrackSummary,
 } from "./types"
 import {
-  VNDB_BASE_URL, IMGSERVE_BASE_URL, USERSERVE_BASE_URL, TRANSSERVE_BASE_URL,
+  VNDBSERVE_BASE_URL, IMGSERVE_BASE_URL, USERSERVE_BASE_URL, TRANSSERVE_BASE_URL,
   MUSICSERVE_BASE_URL, COLLECTION_TYPE_MAP,
 } from "./constants"
 
@@ -19,10 +19,10 @@ import {
 // /imgserve, /userserve paths, which Caddy (prod) or Next.js rewrites (dev)
 // forward to the matching Flask backend.
 
-const getBaseUrl = (type: "vndb" | "imgserve" | "userserve" | "transserve" | "musicserve") => {
+const getBaseUrl = (type: "vndbserve" | "imgserve" | "userserve" | "transserve" | "musicserve") => {
   if (typeof window === "undefined") {
     switch (type) {
-      case "vndb": return process.env.NEXT_PUBLIC_VNDB_BASE_URL || VNDB_BASE_URL
+      case "vndbserve": return process.env.NEXT_PUBLIC_VNDBSERVE_BASE_URL || VNDBSERVE_BASE_URL
       case "imgserve": return process.env.NEXT_PUBLIC_IMGSERVE_BASE_URL || IMGSERVE_BASE_URL
       case "userserve": return process.env.NEXT_PUBLIC_USERSERVE_BASE_URL || USERSERVE_BASE_URL
       case "transserve": return process.env.NEXT_PUBLIC_TRANSSERVE_BASE_URL || TRANSSERVE_BASE_URL
@@ -30,7 +30,7 @@ const getBaseUrl = (type: "vndb" | "imgserve" | "userserve" | "transserve" | "mu
     }
   } else {
     switch (type) {
-      case "vndb": return VNDB_BASE_URL
+      case "vndbserve": return VNDBSERVE_BASE_URL
       case "imgserve": return IMGSERVE_BASE_URL
       case "userserve": return USERSERVE_BASE_URL
       case "transserve": return TRANSSERVE_BASE_URL
@@ -52,12 +52,12 @@ const fetchVNDB = async <T>(
   abortSignal?: AbortSignal,
 ): Promise<PaginatedResponse<T>> => {
   const queryString = new URLSearchParams(params as Record<string, string>).toString()
-  const url = `${getBaseUrl("vndb")}/${endpoint}?${queryString}`
+  const url = `${getBaseUrl("vndbserve")}/${endpoint}?${queryString}`
   try {
     const data = await fetchJson<PaginatedResponse<T>>(url, { method: "GET", signal: abortSignal }, "HTTP")
     return processor ? processVNDBResponse(data, processor) : data
   } catch (error) {
-    // vndb answers 404 when a query matches nothing. For a list that is an
+    // vndbserve answers 404 when a query matches nothing. For a list that is an
     // empty page, not a failure — only a single-item lookup treats it as one.
     if (error instanceof ApiError && error.status === 404) {
       return { results: [], more: false, count: 0 } as PaginatedResponse<T>
@@ -73,7 +73,7 @@ const fetchVNDBById = async <T>(
   abortSignal?: AbortSignal,
 ): Promise<T> => {
   const queryString = new URLSearchParams(params as Record<string, string>).toString()
-  const url = `${getBaseUrl("vndb")}/${endpoint}?${queryString}`
+  const url = `${getBaseUrl("vndbserve")}/${endpoint}?${queryString}`
   // A 404 propagates as an ApiError: for a lookup by id, "no such thing" is
   // the failure the caller wants to hear about.
   const data = await fetchJson<PaginatedResponse<T>>(url, { method: "GET", signal: abortSignal }, "HTTP")
@@ -174,7 +174,7 @@ async function fetchWithSession(
   return response
 }
 
-/** Fetch + parse for the plain-JSON backends (vndb, transserve, musicserve). */
+/** Fetch + parse for the plain-JSON backends (vndbserve, transserve, musicserve). */
 const fetchJson = async <T>(url: string, init: RequestInit, label: string): Promise<T> => {
   const response = await fetchWithSession(url, () => init)
   if (!response.ok) throw new ApiError(`${label} error! status: ${response.status}`, response.status)
@@ -348,7 +348,7 @@ export const api = {
      has its own fetcher; node cover images are mirrored through imgserve. */
   relationGraph: async (id: number, params: VNDBQueryParams = {}, abortSignal?: AbortSignal): Promise<RelationGraph> => {
     const queryString = new URLSearchParams(params as Record<string, string>).toString()
-    const url = `${getBaseUrl("vndb")}/v${id}/rg${queryString ? `?${queryString}` : ""}`
+    const url = `${getBaseUrl("vndbserve")}/v${id}/rg${queryString ? `?${queryString}` : ""}`
     const data = await fetchJson<{ results: RelationGraph }>(
       url, { method: "GET", signal: abortSignal }, "HTTP",
     )
