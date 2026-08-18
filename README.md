@@ -29,8 +29,8 @@ restricted to administrators, but even there the service does no authentication 
 strips whatever the client sent as `X-Is-Admin` and replaces it with the probe's answer, which
 musicserve reads.
 
-> Source: [`architecture.svg`](docs/assets/architecture.svg) — edit it, then rasterise to
-> `architecture.png` at 1680×1442.
+> Source: [`architecture.drawio`](docs/assets/architecture.drawio) — edit it in
+> draw.io, then export `architecture.png` beside it.
 
 ## Preview
 
