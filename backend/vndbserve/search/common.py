@@ -10,6 +10,7 @@ records a query for logserve to replay.
 import re
 
 from vndbserve.logger import add_log_entry, logger
+from vndbserve.errors import Failed
 
 
 def log_search(source: str, message: str, details: dict | None = None, level: str = 'info') -> None:
@@ -95,6 +96,6 @@ def convert_remote_to_local(entity_type, remote_data):
         local_data['released'] = process_released(local_data.pop('released'))
 
     else:
-        raise ValueError(f"Unknown entity type: {entity_type}")
+        raise Failed('internal_error', f"Unknown entity type: {entity_type}")
 
     return local_data

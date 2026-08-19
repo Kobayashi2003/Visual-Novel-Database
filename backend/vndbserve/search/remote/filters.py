@@ -13,7 +13,7 @@ import re
 from typing import Any, Callable
 from enum import Enum, auto
 from ..parse import validate_logical_expression
-from vndbserve.errors import Failed
+from vndbserve.errors import Failed, Rejected
 
 
 class FilterType(Enum):
@@ -140,7 +140,7 @@ class VNDBFilters:
 
 def build_filter(filter_set: dict[str, VNDBFilter], key: str, value: Any) -> list:
     if key not in filter_set:
-        raise ValueError(f"Invalid key: {key}")
+        raise Failed('internal_error', f"Invalid key: {key}")
 
     filter_def = filter_set[key]
 
@@ -153,14 +153,14 @@ def build_filter(filter_set: dict[str, VNDBFilter], key: str, value: Any) -> lis
             operator, filter_value = match.groups()
 
     if not filter_value:
-        raise ValueError(f"Invalid value: {value}")
+        raise Rejected('invalid_request', f"Invalid value: {value}")
 
     if isinstance(filter_value, str):
         filter_value = filter_value.strip()
 
     if filter_def.filter_type == FilterType.NESTED:
         if not isinstance(filter_value, dict):
-            raise ValueError(f"Invalid value: {value}")
+            raise Rejected('invalid_request', f"Invalid value: {value}")
         if filter_def.associated_domain:
             associated_filter_set = getattr(VNDBFilters, filter_def.associated_domain)
             nested_filters = build_filters(associated_filter_set, filter_value)
@@ -174,14 +174,14 @@ def build_filter(filter_set: dict[str, VNDBFilter], key: str, value: Any) -> lis
             # [id, max_spoiler (0-2), min_tag_level (0-3)] that the Kana API
             # accepts. The array is built upstream by parse_tag_expression.
             if isinstance(filter_value, list) and len(filter_value) != 3:
-                raise ValueError(f"Invalid value: {value}")
+                raise Rejected('invalid_request', f"Invalid value: {value}")
         elif key in ('trait', 'dtrait'):
             # Either a bare trait id ("i123"), or the array form
             # [id, max_spoiler (0-2)].
             if isinstance(filter_value, list) and len(filter_value) != 2:
-                raise ValueError(f"Invalid value: {value}")
+                raise Rejected('invalid_request', f"Invalid value: {value}")
         elif not isinstance(filter_value, list):
-            raise ValueError(f"Invalid value: {value}")
+            raise Rejected('invalid_request', f"Invalid value: {value}")
 
     if filter_def.filter_type == FilterType.BOOLEAN:
         if isinstance(filter_value, bool):
@@ -192,35 +192,35 @@ def build_filter(filter_set: dict[str, VNDBFilter], key: str, value: Any) -> lis
             elif filter_value.lower() == 'true' or filter_value.lower() == '1':
                 operator = '='
             else:
-                raise ValueError(f"Invalid value: {value}")
+                raise Rejected('invalid_request', f"Invalid value: {value}")
         elif isinstance(filter_value, int):
             if filter_value == 0:
                 operator = '!='
             elif filter_value == 1:
                 operator = '='
             else:
-                raise ValueError(f"Invalid value: {value}")
+                raise Rejected('invalid_request', f"Invalid value: {value}")
         else:
-            raise ValueError(f"Invalid value: {value}")
+            raise Rejected('invalid_request', f"Invalid value: {value}")
         filter_value = 1
 
     if filter_def.filter_type == FilterType.INTEGER:
         if isinstance(filter_value, str):
             int(filter_value)
         elif not isinstance(filter_value, int):
-            raise ValueError(f"Invalid value: {value}")
+            raise Rejected('invalid_request', f"Invalid value: {value}")
 
     if filter_def.filter_type == FilterType.FLOAT:
         if isinstance(filter_value, str):
             float(filter_value)
         elif not isinstance(filter_value, float):
-            raise ValueError(f"Invalid value: {value}")
+            raise Rejected('invalid_request', f"Invalid value: {value}")
 
     if filter_def.filter_type == FilterType.VNDBID:
         pattern = r'^([v|r|c|p|s|g|i]\d+|\d+)$'
         match = re.match(pattern, filter_value)
         if not match:
-            raise ValueError(f"Invalid value: {value}")
+            raise Rejected('invalid_request', f"Invalid value: {value}")
         filter_value = match.group(1)
 
     if not isinstance(filter_value, list):
@@ -270,7 +270,7 @@ def parse_logical_expression(expression: str, field: str,
     (e.g. wrapping a bare tag id into the `[id, spoiler, level]` array form).
     """
     if not validate_logical_expression(expression):
-        raise ValueError(f"Invalid expression: {expression}")
+        raise Rejected('invalid_request', f"Invalid expression: {expression}")
 
     wrap = value_wrapper if value_wrapper is not None else (lambda v: v)
 

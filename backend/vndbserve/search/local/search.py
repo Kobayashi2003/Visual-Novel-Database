@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import asc, desc
 
 from vndbserve.database.models import MODEL_MAP
-from vndbserve.errors import Failed
+from vndbserve.errors import Failed, Rejected
 
 from .fields import get_local_fields, validate_sort
 from .filters import get_local_filters
@@ -105,7 +105,7 @@ def search_resources_by_vnid(vnid: str, related_resource_type: str, response_siz
 
     vn = VN.query.filter(VN.id == vnid, VN.deleted_at == None).first()
     if not vn:
-        raise ValueError(f"Active VN with id {vnid} not found")
+        raise Rejected('not_found', f"Active VN with id {vnid} not found")
 
     related_resource_ids = []
     if related_resource_type == 'vn':
@@ -121,14 +121,14 @@ def search_resources_by_vnid(vnid: str, related_resource_type: str, response_siz
     elif related_resource_type == 'release':
         related_resource_ids = [release['id'] for release in vn.releases]
     else:
-        raise ValueError(f"Invalid related_resource_type: {related_resource_type}")
+        raise Rejected('invalid_request', f"Invalid related_resource_type: {related_resource_type}")
 
     if not related_resource_ids:
         return {'results': [], 'more': False, 'count': 0} if count else {'results': [], 'more': False}
 
     model = MODEL_MAP.get(related_resource_type)
     if not model:
-        raise ValueError(f"Invalid model type: {related_resource_type}")
+        raise Failed('internal_error', f"Invalid model type: {related_resource_type}")
 
     fields = get_local_fields(related_resource_type, response_size)
     query = model.query.with_entities(*[getattr(model, field) for field in fields])
@@ -157,7 +157,7 @@ def search_resources_by_charid(charid: str, related_resource_type: str, response
 
     character = Character.query.filter(Character.id == charid, Character.deleted_at == None).first()
     if not character:
-        raise ValueError(f"Active Character with id {charid} not found")
+        raise Rejected('not_found', f"Active Character with id {charid} not found")
 
     related_resource_ids = []
     if related_resource_type == 'vn':
@@ -165,14 +165,14 @@ def search_resources_by_charid(charid: str, related_resource_type: str, response
     elif related_resource_type == 'trait':
         related_resource_ids = [trait['id'] for trait in character.traits]
     else:
-        raise ValueError(f"Invalid related_resource_type: {related_resource_type}")
+        raise Rejected('invalid_request', f"Invalid related_resource_type: {related_resource_type}")
 
     if not related_resource_ids:
         return {'results': [], 'more': False, 'count': 0} if count else {'results': [], 'more': False}
 
     model = MODEL_MAP.get(related_resource_type)
     if not model:
-        raise ValueError(f"Invalid model type: {related_resource_type}")
+        raise Failed('internal_error', f"Invalid model type: {related_resource_type}")
 
     fields = get_local_fields(related_resource_type, response_size)
     query = model.query.with_entities(*[getattr(model, field) for field in fields])
@@ -201,7 +201,7 @@ def search_resources_by_release_id(release_id: str, related_resource_type: str, 
 
     release = Release.query.filter(Release.id == release_id, Release.deleted_at == None).first()
     if not release:
-        raise ValueError(f"Active Release with id {release_id} not found")
+        raise Rejected('not_found', f"Active Release with id {release_id} not found")
 
     related_resource_ids = []
     if related_resource_type == 'vn':
@@ -209,14 +209,14 @@ def search_resources_by_release_id(release_id: str, related_resource_type: str, 
     elif related_resource_type == 'producer':
         related_resource_ids = [producer['id'] for producer in release.producers]
     else:
-        raise ValueError(f"Invalid related_resource_type: {related_resource_type}")
+        raise Rejected('invalid_request', f"Invalid related_resource_type: {related_resource_type}")
 
     if not related_resource_ids:
         return {'results': [], 'more': False, 'count': 0} if count else {'results': [], 'more': False}
 
     model = MODEL_MAP.get(related_resource_type)
     if not model:
-        raise ValueError(f"Invalid model type: {related_resource_type}")
+        raise Failed('internal_error', f"Invalid model type: {related_resource_type}")
 
     fields = get_local_fields(related_resource_type, response_size)
     query = model.query.with_entities(*[getattr(model, field) for field in fields])
@@ -250,7 +250,7 @@ def search_vns_by_resource_id(resource_type: str, resource_id: str, response_siz
     }.get(resource_type)
 
     if param_key is None:
-        raise ValueError(f"Invalid resource_type: {resource_type}")
+        raise Rejected('invalid_request', f"Invalid resource_type: {resource_type}")
 
     params = {param_key: resource_id}
 
@@ -267,7 +267,7 @@ def search_characters_by_resource_id(resource_type: str, resource_id: str, respo
     }.get(resource_type)
 
     if param_key is None:
-        raise ValueError(f"Invalid resource_type: {resource_type}")
+        raise Rejected('invalid_request', f"Invalid resource_type: {resource_type}")
 
     params = {param_key: resource_id}
 
@@ -284,7 +284,7 @@ def search_releases_by_resource_id(resource_type: str, resource_id: str, respons
     }.get(resource_type)
 
     if param_key is None:
-        raise ValueError(f"Invalid resource_type: {resource_type}")
+        raise Rejected('invalid_request', f"Invalid resource_type: {resource_type}")
 
     params = {param_key: resource_id}
 

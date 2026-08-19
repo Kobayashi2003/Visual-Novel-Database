@@ -26,7 +26,7 @@ from sqlalchemy.sql.expression import BinaryExpression
 
 from vndbserve.database.models import VN, Tag, Producer, Staff, Character, Trait, Release
 from vndbserve.utils.ids import formatId
-from vndbserve.errors import Failed
+from vndbserve.errors import Failed, Rejected
 from ..parse import validate_logical_expression
 
 def generate_unique_param_name(prefix: str) -> str:
@@ -128,7 +128,7 @@ def process_multi_value_expression(expression: str, value_processor: Callable[[s
     condition; this function only combines them, using an operator and a value
     stack. Raises ValueError if the expression is malformed."""
     if not validate_logical_expression(expression):
-        raise ValueError(f"Invalid expression: {expression}")
+        raise Rejected('invalid_request', f"Invalid expression: {expression}")
 
     def evaluate(ops: list, vals: list) -> None:
         if len(ops) > 0 and len(vals) >= 2:
@@ -178,7 +178,7 @@ def create_comparison_filter(field: Any, value: str, value_parser: Callable[[str
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
-        raise ValueError(f"Invalid comparison format: {value}")
+        raise Rejected('invalid_request', f"Invalid comparison format: {value}")
 
     operator, actual_value = match.groups()
     operator = operator or '='
@@ -214,7 +214,7 @@ def parse_released(value: str) -> str:
             except ValueError:
                 pass
 
-    raise ValueError(f"Invalid release date format: {value}. Use YYYY, YYYY-MM, or YYYY-MM-DD format.")
+    raise Rejected('invalid_request', f"Invalid release date format: {value}. Use YYYY, YYYY-MM, or YYYY-MM-DD format.")
 
 def parse_resolution(value: str) -> tuple[int, int]:
     """"WIDTHxHEIGHT" → (width, height)."""
@@ -223,7 +223,7 @@ def parse_resolution(value: str) -> tuple[int, int]:
     if match:
         return tuple(map(int, match.groups()))
 
-    raise ValueError(f"Invalid resolution format: {value}. Use 'WIDTHxHEIGHT' format (e.g., '640x480').")
+    raise Rejected('invalid_request', f"Invalid resolution format: {value}. Use 'WIDTHxHEIGHT' format (e.g., '640x480').")
 
 def parse_birthday(value: str) -> tuple[int, int]:
     """"MM-DD" → (month, day)."""
@@ -234,7 +234,7 @@ def parse_birthday(value: str) -> tuple[int, int]:
         if 1 <= month <= 12 and 1 <= day <= 31:
             return (month, day)
 
-    raise ValueError(f"Invalid birthday format: {value}. Use 'MM-DD' format (e.g., '12-25').")
+    raise Rejected('invalid_request', f"Invalid birthday format: {value}. Use 'MM-DD' format (e.g., '12-25').")
 
 def parse_cup(value: str) -> str:
     cup_sizes = ['AAA', 'AA', 'A', 'B', 'C', 'D', 'E',
@@ -243,7 +243,7 @@ def parse_cup(value: str) -> str:
                  'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
     if value.upper() in cup_sizes:
         return value.upper()
-    raise ValueError(f"Invalid cup size: {value}")
+    raise Rejected('invalid_request', f"Invalid cup size: {value}")
 
 def create_released_comparison_filter(value: str, model) -> BinaryExpression:
     """`value` is "OPERATOR DATE", e.g. ">=2010-01". Release dates are stored as
@@ -251,7 +251,7 @@ def create_released_comparison_filter(value: str, model) -> BinaryExpression:
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
-        raise ValueError(f"Invalid release date comparison format: {value}. Use format like '>=2022-01-01'.")
+        raise Rejected('invalid_request', f"Invalid release date comparison format: {value}. Use format like '>=2022-01-01'.")
 
     operator, date_value = match.groups()
     operator = operator or '='
@@ -275,7 +275,7 @@ def create_resolution_comparison_filter(value: str) -> BinaryExpression:
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
-        raise ValueError(f"Invalid resolution comparison format: {value}. Use format like '>=640x480'.")
+        raise Rejected('invalid_request', f"Invalid resolution comparison format: {value}. Use format like '>=640x480'.")
 
     operator, resolution_value = match.groups()
     operator = operator or '='
@@ -319,7 +319,7 @@ def create_resolution_aspect_comparison_filter(value: str) -> BinaryExpression:
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
-        raise ValueError(f"Invalid resolution comparison format: {value}. Use format like '>=640x480'.")
+        raise Rejected('invalid_request', f"Invalid resolution comparison format: {value}. Use format like '>=640x480'.")
 
     operator, resolution_value = match.groups()
     operator = operator or '='
@@ -384,7 +384,7 @@ def create_birthday_comparison_filter(value: str) -> BinaryExpression:
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
-        raise ValueError(f"Invalid birthday comparison format: {value}. Use format like '>=12-25'.")
+        raise Rejected('invalid_request', f"Invalid birthday comparison format: {value}. Use format like '>=12-25'.")
 
     operator, birthday_value = match.groups()
     operator = operator or '='
@@ -427,7 +427,7 @@ def create_cup_comparison_filter(value: str) -> BinaryExpression:
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
     match = re.match(pattern, value.strip())
     if not match:
-        raise ValueError(f"Invalid cup size comparison format: {value}. Use format like '>=B'.")
+        raise Rejected('invalid_request', f"Invalid cup size comparison format: {value}. Use format like '>=B'.")
 
     operator, cup_value = match.groups()
     operator = operator or '='
@@ -686,10 +686,10 @@ def get_vn_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(has_description).lower() == 'false' or str(has_description) == '0':
             filters.append(VN.description.is_(None))
         else:
-            raise ValueError(f"Invalid value for has_description: {has_description}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for has_description: {has_description}. Use 'true' or 'false'.")
 
     if 'has_anime' in params: #TODO
-        raise ValueError("The 'has_anime' search field is not available for local searches.")
+        raise Rejected('invalid_request', "The 'has_anime' search field is not available for local searches.")
 
     if 'has_screenshot' in params:
         has_screenshot = params['has_screenshot']
@@ -698,10 +698,10 @@ def get_vn_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(has_screenshot).lower() == 'false' or str(has_screenshot) == '0':
             filters.append(or_(VN.screenshots.is_(None), func.jsonb_array_length(VN.screenshots) == 0))
         else:
-            raise ValueError(f"Invalid value for has_screenshot: {has_screenshot}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for has_screenshot: {has_screenshot}. Use 'true' or 'false'.")
 
     if 'has_review' in params: #TODO
-        raise ValueError("The 'has_review' search field is not available for local searches.")
+        raise Rejected('invalid_request', "The 'has_review' search field is not available for local searches.")
 
     if devstatus := params.get('devstatus'):
         filters.append(VN.devstatus == devstatus)
@@ -716,10 +716,10 @@ def get_vn_filters(params: dict[str, Any]) -> list[BinaryExpression]:
             ))
 
     if anime_id := params.get('anime_id'): #TODO
-        raise ValueError("The 'anime_id' search field is not available for local searches.")
+        raise Rejected('invalid_request', "The 'anime_id' search field is not available for local searches.")
 
     if label := params.get('label'): #TODO
-        raise ValueError("The 'label' search field is not available for local searches.")
+        raise Rejected('invalid_request', "The 'label' search field is not available for local searches.")
 
     if releases := params.get('release'):
         def process_release(release_value):
@@ -809,7 +809,7 @@ def get_release_filters(params: dict[str, Any]) -> list[BinaryExpression]:
 
     if 'drm' in params:
         # DRM information is not stored locally.
-        raise ValueError("The 'drm' search field is not available for local searches.")
+        raise Rejected('invalid_request', "The 'drm' search field is not available for local searches.")
 
     if image := params.get('image'):
         filters.append(array_jsonb_exact_match(Release.images, 'type', image))
@@ -829,7 +829,7 @@ def get_release_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(patch).lower() == 'false' or str(patch) == '0':
             filters.append(Release.patch == False)
         else:
-            raise ValueError(f"Invalid value for patch: {patch}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for patch: {patch}. Use 'true' or 'false'.")
 
     if 'freeware' in params:
         freeware = params['freeware']
@@ -838,7 +838,7 @@ def get_release_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(freeware).lower() == 'false' or str(freeware) == '0':
             filters.append(Release.freeware == False)
         else:
-            raise ValueError(f"Invalid value for freeware: {freeware}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for freeware: {freeware}. Use 'true' or 'false'.")
 
     if 'uncensored' in params:
         uncensored = params['uncensored']
@@ -847,7 +847,7 @@ def get_release_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(uncensored).lower() == 'false' or str(uncensored) == '0':
             filters.append(Release.uncensored == False)
         else:
-            raise ValueError(f"Invalid value for uncensored: {uncensored}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for uncensored: {uncensored}. Use 'true' or 'false'.")
 
     if 'official' in params:
         official = params['official']
@@ -856,7 +856,7 @@ def get_release_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(official).lower() == 'false' or str(official) == '0':
             filters.append(Release.official == False)
         else:
-            raise ValueError(f"Invalid value for official: {official}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for official: {official}. Use 'true' or 'false'.")
 
     if 'has_ero' in params:
         has_ero = params['has_ero']
@@ -865,7 +865,7 @@ def get_release_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(has_ero).lower() == 'false' or str(has_ero) == '0':
             filters.append(Release.has_ero == False)
         else:
-            raise ValueError(f"Invalid value for has_ero: {has_ero}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for has_ero: {has_ero}. Use 'true' or 'false'.")
 
     if vns := params.get('vn'):
         def process_vn(vn_value):
@@ -1038,7 +1038,7 @@ def get_staff_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     if role := params.get('role'):
         # The local Staff model keeps no per-VN credit data, so role cannot be
         # answered locally (mirrors the has_anime pattern on VN).
-        raise ValueError("The 'role' search field is not available for local searches.")
+        raise Rejected('invalid_request', "The 'role' search field is not available for local searches.")
 
     if extlink := params.get('extlink'):
         filters.append(or_(
@@ -1055,7 +1055,7 @@ def get_staff_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         elif str(ismain).lower() == 'false' or str(ismain) == '0':
             filters.append(Staff.ismain == False)
         else:
-            raise ValueError(f"Invalid value for ismain: {ismain}. Use 'true' or 'false'.")
+            raise Rejected('invalid_request', f"Invalid value for ismain: {ismain}. Use 'true' or 'false'.")
 
     filters.extend(get_staff_additional_filters(params))
 
