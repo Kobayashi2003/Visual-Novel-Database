@@ -26,6 +26,7 @@ from sqlalchemy.sql.expression import BinaryExpression
 
 from vndbserve.database.models import VN, Tag, Producer, Staff, Character, Trait, Release
 from vndbserve.utils.ids import formatId
+from vndbserve.errors import Failed
 from ..parse import validate_logical_expression
 
 def generate_unique_param_name(prefix: str) -> str:
@@ -1117,4 +1118,4 @@ def get_local_filters(search_type: str, params: dict[str, Any]) -> list[BinaryEx
     if filter_function := filter_functions.get(search_type):
         return filter_function(params)
     else:
-        raise ValueError(f"Invalid search_type: {search_type}")
+        raise Failed('internal_error', f"Invalid search_type: {search_type}")

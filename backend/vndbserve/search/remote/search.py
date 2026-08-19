@@ -18,6 +18,7 @@ from .filters import get_remote_filters
 from .fields import get_remote_fields, validate_sort
 from ..common import log_search
 from ..params import validate_params
+from vndbserve.errors import Failed, Unavailable
 
 
 VNDB_API_URL = "https://api.vndb.org/kana"
@@ -36,6 +37,31 @@ class VNDBEndpoint(Enum):
     TRAIT = "trait"
     RELEASE = "release"
 
+def raise_for_kana_status(response: httpx.Response) -> None:
+    """Turn a non-2xx Kana reply into one of the three kinds.
+
+    A 5xx or a 429 is the API's own trouble, so it passes as Unavailable. Any
+    other 4xx means the API refused a request this service constructed, which
+    is a defect of ours — reporting it as Rejected would tell the caller to fix
+    something they never sent.
+    """
+    if response.is_success:
+        return
+
+    status = response.status_code
+    context = {'url': str(response.request.url), 'status': status,
+               'body': response.text[:500]}
+
+    if status >= 500:
+        raise Unavailable('upstream_unavailable',
+                          "The VNDB API is not answering.", context)
+    if status == 429:
+        raise Unavailable('upstream_rate_limited',
+                          "The VNDB API is rate limiting this service.", context)
+    raise Failed('internal_error',
+                 "The VNDB API refused a request this service built.", context)
+
+
 class VNDBAPIWrapper:
     def __init__(self, api_token: str | None = None):
         self.client = httpx.Client(
@@ -50,10 +76,17 @@ class VNDBAPIWrapper:
         """Send a request to the Kana API, backing off exponentially when it
         replies 429 (rate limited). The API's Retry-After header is honoured
         when present; otherwise the delay doubles each attempt. The final
-        response is returned for the caller to `raise_for_status()`."""
+        response is returned for the caller to classify with
+        `raise_for_kana_status`. A network failure never yields a response at
+        all, so it is translated here."""
         delay = RATE_LIMIT_BASE_DELAY
         for attempt in range(RATE_LIMIT_MAX_RETRIES):
-            response = self.client.request(method, url, **kwargs)
+            try:
+                response = self.client.request(method, url, **kwargs)
+            except httpx.HTTPError as exc:
+                raise Unavailable('upstream_unreachable',
+                                  "The VNDB API could not be reached.",
+                                  {'url': url, 'cause': repr(exc)}) from exc
             if response.status_code != 429 or attempt == RATE_LIMIT_MAX_RETRIES - 1:
                 return response
             retry_after = response.headers.get("Retry-After", "")
@@ -102,7 +135,7 @@ class VNDBAPIWrapper:
                 },
             )
 
-        response.raise_for_status()
+        raise_for_kana_status(response)
         return response.json()
 
     def get_vn(self, filters: dict[str, Any], fields: list[str], **kwargs) -> dict[str, Any]:
@@ -129,27 +162,27 @@ class VNDBAPIWrapper:
     def update_user_list(self, vn_id: str, data: dict[str, Any]) -> None:
         url = f"{VNDB_API_URL}/ulist/{vn_id}"
         response = self._request("PATCH", url, json=data)
-        response.raise_for_status()
+        raise_for_kana_status(response)
 
     def update_release_list(self, release_id: str, status: int) -> None:
         url = f"{VNDB_API_URL}/rlist/{release_id}"
         response = self._request("PATCH", url, json={"status": status})
-        response.raise_for_status()
+        raise_for_kana_status(response)
 
     def remove_from_user_list(self, vn_id: str) -> None:
         url = f"{VNDB_API_URL}/ulist/{vn_id}"
         response = self._request("DELETE", url)
-        response.raise_for_status()
+        raise_for_kana_status(response)
 
     def remove_from_release_list(self, release_id: str) -> None:
         url = f"{VNDB_API_URL}/rlist/{release_id}"
         response = self._request("DELETE", url)
-        response.raise_for_status()
+        raise_for_kana_status(response)
 
     def get_auth_info(self) -> dict[str, Any]:
         url = f"{VNDB_API_URL}/authinfo"
         response = self._request("GET", url)
-        response.raise_for_status()
+        raise_for_kana_status(response)
         return response.json()
 
 api = VNDBAPIWrapper()
@@ -316,7 +349,7 @@ def search(resource_type: str, params: dict[str, Any], response_size: str = 'sma
     }
 
     if resource_type not in search_functions:
-        raise ValueError(f"Invalid search type: {resource_type}")
+        raise Failed('internal_error', f"Invalid search type: {resource_type}")
 
     validate_params(resource_type, params)
 
@@ -367,7 +400,7 @@ def search_resources_by_release_id(release_id: str, related_resource_type: str, 
     }
 
     response = api._request("POST", url, json=payload)
-    response.raise_for_status()
+    raise_for_kana_status(response)
     api_results = response.json().get('results', [])
     if not api_results:
         return {'results': []}
@@ -397,7 +430,7 @@ def search_resources_by_charid(charid: str, related_resource_type: str, response
     }
 
     response = api._request("POST", url, json=payload)
-    response.raise_for_status()
+    raise_for_kana_status(response)
     api_results = response.json().get('results', [])
     if not api_results:
         return {'results': []}
@@ -429,7 +462,7 @@ def search_resources_by_vnid(vnid: str, related_resource_type: str, response_siz
     }
 
     response = api._request("POST", url, json=payload)
-    response.raise_for_status()
+    raise_for_kana_status(response)
     api_results = response.json().get('results', [])
     if not api_results:
         return {'results': []}
@@ -467,7 +500,7 @@ def search_releases_by_resource_id(resource_type: str, resource_id: str, respons
     }
 
     response = api._request("POST", url, json=payload)
-    response.raise_for_status()
+    raise_for_kana_status(response)
 
     return response.json()
 
@@ -494,7 +527,7 @@ def search_characters_by_resource_id(resource_type: str, resource_id: str, respo
     }
 
     response = api._request("POST", url, json=payload)
-    response.raise_for_status()
+    raise_for_kana_status(response)
 
     return response.json()
 
@@ -525,7 +558,7 @@ def search_vns_by_resource_id(resource_type: str, resource_id: str, response_siz
     }
 
     response = api._request("POST", url, json=payload)
-    response.raise_for_status()
+    raise_for_kana_status(response)
     results = response.json()
 
     if response_size == 'small':

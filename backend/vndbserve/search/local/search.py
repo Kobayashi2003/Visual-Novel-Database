@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import asc, desc
 
 from vndbserve.database.models import MODEL_MAP
+from vndbserve.errors import Failed
 
 from .fields import get_local_fields, validate_sort
 from .filters import get_local_filters
@@ -37,7 +38,7 @@ def search(resource_type: str, params: dict[str, Any],
 
     model = MODEL_MAP.get(resource_type)
     if not model:
-        raise ValueError(f"Invalid model type: {resource_type}")
+        raise Failed('internal_error', f"Invalid model type: {resource_type}")
 
     validate_params(resource_type, params)
 

@@ -6,6 +6,8 @@ what the `response_size` parameter selects. `validate_sort` guards the sort key,
 since an unknown one is an upstream error rather than a local one.
 """
 
+from vndbserve.errors import Failed, Rejected
+
 class FieldMeta(type):
 
     def __new__(mcs, name, bases, attrs):
@@ -307,16 +309,16 @@ SORTABLE_FIELDS = {
 
 def validate_sort(search_type: str, sort: str) -> str:
     if search_type not in SORTABLE_FIELDS:
-        raise ValueError(f"Invalid search_type: {search_type}")
+        raise Failed('internal_error', f"Invalid search_type: {search_type}")
     if sort not in SORTABLE_FIELDS[search_type]:
-        raise ValueError(f"Invalid sort: {sort} for search_type: {search_type}")
+        raise Rejected('invalid_request', f"Invalid sort: {sort} for search_type: {search_type}")
     return sort
 
 def get_remote_fields(search_type: str, response_size: str = 'small') -> list[str]:
     """The `fields` list to ask the Kana API for. `small` covers what a card
     needs, `large` the whole entity. Raises ValueError on an unknown type."""
     if response_size not in ['small', 'large']:
-        raise ValueError(f"Invalid response_size: {response_size}. Must be 'small' or 'large'.")
+        raise Rejected('invalid_request', f"Invalid response_size: {response_size}. Must be 'small' or 'large'.")
 
     field_mapping = {
         'vn': (SMALL_FIELDS_VN, FIELDS_VN),
@@ -329,7 +331,7 @@ def get_remote_fields(search_type: str, response_size: str = 'small') -> list[st
     }
 
     if search_type not in field_mapping:
-        raise ValueError(f"Invalid search_type: {search_type}")
+        raise Failed('internal_error', f"Invalid search_type: {search_type}")
 
     return field_mapping[search_type][0] if response_size == 'small' else field_mapping[search_type][1]
 

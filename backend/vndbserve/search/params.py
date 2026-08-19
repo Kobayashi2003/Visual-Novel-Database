@@ -9,6 +9,7 @@ asked for.
 """
 
 from typing import Any
+from vndbserve.errors import Rejected
 
 from .local import filters as local_filters
 from .remote import filters as remote_filters
@@ -53,4 +54,5 @@ def validate_params(search_type: str, params: dict[str, Any]) -> None:
     """Raise ValueError naming any parameter neither backend understands."""
 
     if unknown := set(params) - known_params(search_type):
-        raise ValueError(f"Unknown search parameter(s): {', '.join(sorted(unknown))}")
+        raise Rejected('invalid_request',
+                       f"Unknown search parameter(s): {', '.join(sorted(unknown))}")

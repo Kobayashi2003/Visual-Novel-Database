@@ -13,6 +13,7 @@ import re
 from typing import Any, Callable
 from enum import Enum, auto
 from ..parse import validate_logical_expression
+from vndbserve.errors import Failed
 
 
 class FilterType(Enum):
@@ -838,7 +839,7 @@ def get_remote_filters(search_type: str, params: dict[str, Any]) -> list:
     elif search_type == 'trait':
         return build_filters(VNDBFilters.TRAIT, get_trait_filters(params))
     else:
-        raise ValueError(f"Invalid search_type: {search_type}")
+        raise Failed('internal_error', f"Invalid search_type: {search_type}")
 
 
 if __name__ == '__main__':
