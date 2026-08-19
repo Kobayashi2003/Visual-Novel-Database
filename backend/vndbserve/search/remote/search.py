@@ -17,6 +17,7 @@ from enum import Enum
 from .filters import get_remote_filters
 from .fields import get_remote_fields, validate_sort
 from ..common import log_search
+from ..params import validate_params
 
 
 VNDB_API_URL = "https://api.vndb.org/kana"
@@ -316,6 +317,8 @@ def search(resource_type: str, params: dict[str, Any], response_size: str = 'sma
 
     if resource_type not in search_functions:
         raise ValueError(f"Invalid search type: {resource_type}")
+
+    validate_params(resource_type, params)
 
     filters = get_remote_filters(resource_type, params)
     fields = get_remote_fields(resource_type, response_size)

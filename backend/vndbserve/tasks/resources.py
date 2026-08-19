@@ -14,6 +14,9 @@ from vndbserve.search import (
     search_remote, search_local, search_both,
     convert_remote_to_local
 )
+# Uncached: a refresh exists to replace stale data, so reading it through the
+# hour-long response cache would rewrite the row with what it already held.
+from vndbserve.search.remote.search import search as search_remote_live
 from vndbserve.database import (
     get_all, create, update, updatable,
     delete, delete_all, exists
@@ -85,7 +88,7 @@ def search_resources_task(resource_type: str, params: dict[str, Any], response_s
     return results
 
 def _update_resource(resource_type: str, resource_id: str) -> dict[str, Any]:
-    remote_result = search_remote(resource_type, {'id':resource_id}, 'large')
+    remote_result = search_remote_live(resource_type, {'id': resource_id}, 'large')
     if not remote_result or not remote_result.get('results'):
         return NOT_FOUND
 

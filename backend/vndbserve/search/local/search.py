@@ -15,6 +15,7 @@ from vndbserve.database.models import MODEL_MAP
 from .fields import get_local_fields, validate_sort
 from .filters import get_local_filters
 from ..common import log_search
+from ..params import validate_params
 
 
 def _jsonable(value: Any) -> Any:
@@ -37,6 +38,8 @@ def search(resource_type: str, params: dict[str, Any],
     model = MODEL_MAP.get(resource_type)
     if not model:
         raise ValueError(f"Invalid model type: {resource_type}")
+
+    validate_params(resource_type, params)
 
     fields = get_local_fields(resource_type, response_size)
     filters = get_local_filters(resource_type, params)
