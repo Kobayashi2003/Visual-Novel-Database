@@ -26,23 +26,6 @@ def setup_logger(name, log_file, level=logging.INFO):
 
     return logger
 
-def add_log_entry(level, message, details=None):
-    """Write one row to the vndbserve `logs` table — the source logserve reads.
-    Imports inside the function: this module is imported at package import
-    time, before `db` exists."""
-    from vndbserve import db
-    from vndbserve.database.models import LogEntry
-    import uuid
-
-    log_entry = LogEntry(
-        id=str(uuid.uuid4()),
-        level=level,
-        message=message,
-        details=details
-    )
-    db.session.add(log_entry)
-    db.session.commit()
-
 # Anchored to this file rather than the cwd, so every service's log lands in the
 # same repo-root logs/ dir regardless of where it was launched from.
 _LOG_DIR = os.path.join(
