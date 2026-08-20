@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from datetime import datetime, timezone
 from flask import current_app
 from .common import weekly_task
+from vndbserve.logger import logger
 
 @weekly_task(day_of_week=0, hour=0, minute=0)
 def backup_database_schedule():
@@ -37,7 +38,7 @@ def backup_database_schedule():
 
     try:
         subprocess.run(command, env=env, check=True, capture_output=True, text=True)
-        print(f"[VNDB] Database backup created successfully")
+        logger.info(f"[VNDB] Database backup created successfully")
     except Exception as e:
-        print(f"[VNDB] Error creating database backup: {str(e)}", err=True)
+        logger.exception("Database backup failed")
 
