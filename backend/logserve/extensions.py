@@ -1,23 +1,10 @@
 import time
 from abc import ABC, abstractmethod
-from functools import wraps
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 
 from .logger import logger
-
-
-def error_handler(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            print(f"Error: {str(e)}")
-            logger.error(str(e))
-            return None
-    return wrapper
 
 
 def wait_for_db(db, app, initial_delay=1.0, max_delay=30.0):
@@ -47,11 +34,14 @@ class Extension(ABC):
         self._app = app
         self._instance = self.create(app)
 
-    @error_handler
     def __getattr__(self, name):
-        if not self._instance:
+        # Read through __dict__: __getattr__ runs whenever normal lookup fails,
+        # so reaching for a not-yet-set attribute through `self` would re-enter
+        # this method forever.
+        instance = self.__dict__.get('_instance')
+        if instance is None:
             raise AttributeError(f"{self.__class__.__name__} has not been initialized")
-        return getattr(self._instance, name)
+        return getattr(instance, name)
 
     @abstractmethod
     def create(self, app):
