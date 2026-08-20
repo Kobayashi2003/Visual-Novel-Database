@@ -14,7 +14,9 @@ written.
 
 ## 2. Necessity
 
-Before writing a comment, be sure the comment is necessary.
+Before writing a comment, be sure the comment is necessary. Write nothing that a
+name already states — of a file, a module, a class, a function, a variable. Name
+the thing well enough and the comment becomes redundant.
 
 ## 3. Similarity
 
@@ -35,6 +37,3 @@ All comments are written in English.
 
 No comments are written in `temp/`, which holds superseded versions, or in
 `backend/*/migrations/`, which Alembic generates.
-
-Within the codebase, `__init__.py` that only re-exports and modules named after
-their single purpose (`logger.py`, `extensions.py`) are left uncommented.
