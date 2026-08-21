@@ -6,18 +6,8 @@ from sqlalchemy.sql import func
 
 from vndbserve import db
 
-# ----------------------------------------
-# Resources Models
-# ----------------------------------------
-# Relation-like data (tags, characters, releases, …) is denormalized into
-# JSONB array columns: each column holds the complete JSON array snapshot
-# taken from the Kana API at crawl time. Plain JSONB (not ARRAY(JSONB)) so
-# GIN jsonb_path_ops indexes can serve `@>` containment filters.
-#
-# Timestamps:
-#   crawled_at — last time the row was written from the remote API
-#   edited_at  — last manual (user) edit; set ⇒ background sync must skip
-#   updated_at — last write of any kind (legacy, kept for sorting)
+# The mirrored tables. Relation-like data is held as JSONB in the API's own
+# shape, and the four timestamps each mean a different thing — see README.md.
 
 class VN(db.Model):
     __tablename__ = 'vns'

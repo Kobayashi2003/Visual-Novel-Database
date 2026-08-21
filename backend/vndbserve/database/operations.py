@@ -1,13 +1,10 @@
 """Every read and write against the mirrored tables.
 
-The only layer that touches the session. `@db_transaction` wraps each writer, so
-the functions below are written as if nothing fails: no explicit commit, no
-rollback. A reader returns the row or None; a writer returns the row it wrote.
-
-Rows are soft-deleted (`deleted_at` is set and the row stays), so `get_inactive` /
-`recover` / `cleanup` operate on the trash while the normal reads filter it out.
-`updatable` is the freshness gate that keeps a hand-edited row from being
-overwritten by a crawl.
+The only layer that touches the session. Each operation exists twice — a private
+`_name` that does the work and a public `name` that wraps it — because the
+private ones call each other and the wrapper must run once, not once per nesting
+level. See README.md for what the two wrappers guarantee, and why a read must
+not commit.
 """
 
 from typing import Any
@@ -15,122 +12,176 @@ from datetime import datetime, timezone, timedelta
 from functools import wraps
 
 from sqlalchemy import asc, desc
+from sqlalchemy.exc import SQLAlchemyError, OperationalError, InterfaceError
 
 from vndbserve import db
-from vndbserve.logger import logger
+from vndbserve.errors import Failed, Rejected, Unavailable
 from vndbserve.utils.ids import formatId
 from .models import MODEL_MAP, ModelType
 
+# How long after a crawl an automatic one may write the row again. It lives here
+# rather than with the rest of the freshness policy because it guards the write,
+# not the decision to serve.
+AUTO_CRAWL_INTERVAL = timedelta(minutes=10)
 
-def db_transaction(func):
+# The most rows one call will ever materialise. Not a page size — callers state
+# that — but a ceiling, so a mistaken `limit` cannot pull a whole table into
+# memory.
+MAX_ROWS = 100
+
+# Maintained here from `source`, never writable by a caller.
+PROTECTED_COLUMNS = {'id', 'created_at', 'updated_at', 'crawled_at', 'edited_at',
+                     'deleted_at'}
+
+
+# ─── Wrappers ─────────────────────────────────────────────────────────────────
+
+def _classified(exc: Exception, call: str) -> Exception:
+    """The kind a driver exception belongs to.
+
+    A dropped connection or a database refusing queries is a dependency being
+    down; anything else the ORM raises is a statement this service built
+    wrongly.
+    """
+    if isinstance(exc, (OperationalError, InterfaceError)):
+        return Unavailable('database_unavailable',
+                           "The database is not answering.",
+                           {'call': call, 'cause': repr(exc)})
+    return Failed('internal_error',
+                  "The database refused a statement this service built.",
+                  {'call': call, 'cause': repr(exc)})
+
+
+def translates_db_errors(func):
+    """Let nothing the driver raises escape unclassified.
+
+    The rollback is for the driver's own failures only: a failed statement
+    leaves the session unusable for the next one. Anything else passes
+    untouched, because the caller may well have work pending that is none of a
+    read's business.
+    """
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
-            with db.session.begin_nested():
-                result = func(*args, **kwargs)
-            db.session.commit()
-            return result
-        except Exception:
+            return func(*args, **kwargs)
+        except SQLAlchemyError as exc:
             db.session.rollback()
-            logger.exception(f"{func.__name__} failed")
-            return None
+            raise _classified(exc, func.__name__) from exc
+    return wrapper
+
+
+def commits(func):
+    """A write, committed before it returns.
+
+    Undoing a failed write is the savepoint's own job — leaving the block by way
+    of an exception rolls that back and nothing else, so whatever the caller had
+    pending survives. Rolling the session back here as well would throw that
+    away, which is why this holds no handler: the driver's failures belong to
+    `translates_db_errors`, which does roll the session back, because a failed
+    statement leaves all of it unusable.
+
+    Committing is what every exported write owes its caller; leaving it to them
+    is how half-written state escapes.
+    """
+    @translates_db_errors
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with db.session.begin_nested():
+            result = func(*args, **kwargs)
+        db.session.commit()
+        return result
     return wrapper
 
 
 def _order_by(model, sort: str, reverse: bool):
     if sort not in {c.name for c in model.__table__.columns}:
-        raise ValueError(f"Invalid sort column: {sort}")
+        raise Rejected('invalid_request', f"Invalid sort column: {sort}")
     return (desc if reverse else asc)(getattr(model, sort))
 
 
-def exists(type: str, id: str) -> bool:
-    id = formatId(type, id)
-    model = MODEL_MAP[type]
-    item = db.session.get(model, id)
+def _page(query, page: int | None, limit: int | None):
+    if not (page and limit):
+        return query
+    return query.offset((max(1, page) - 1) * limit).limit(min(max(1, limit), MAX_ROWS))
+
+
+# ─── The work ─────────────────────────────────────────────────────────────────
+
+def _exists(resource_type: str, id: str) -> bool:
+    id = formatId(resource_type, id)
+    item = db.session.get(MODEL_MAP[resource_type], id)
     return item is not None and item.deleted_at is None
 
-def count_all(type: str) -> int:
-    model = MODEL_MAP[type]
-    return db.session.query(model).filter(model.deleted_at.is_(None)).count()
 
-def count_inactive_all(type: str) -> int:
-    model = MODEL_MAP[type]
-    return db.session.query(model).filter(model.deleted_at.is_not(None)).count()
-
-def updatable(type: str, id: str, update_interval: timedelta = timedelta(minutes=10)) -> bool:
-    """Whether a background (automatic) crawl may overwrite this row.
-
-    Manually edited rows (edited_at set) are never updatable here — an
-    automatic sync would silently destroy the user's edits. Explicit refresh
-    paths (update_resource_task) bypass this check and clear edited_at.
-    Freshness is judged on crawled_at (when the row was last written from the
-    remote API), not updated_at, which any write (including edits) bumps.
-    """
-    id = formatId(type, id)
-    # `get` filters soft-deleted rows, so a missing item covers both
-    # "never existed" and "deleted" — both are free to be written.
-    item = get(type, id)
-    if not item:
-        return True
-    if item.edited_at is not None:
-        return False  # Never auto-overwrite manual edits
-    last_crawl = item.crawled_at or item.updated_at
-    if last_crawl is None:
-        return True  # Allow update if item has never been crawled
-    return datetime.now(timezone.utc) - last_crawl > update_interval
+def _get(resource_type: str, id: str) -> ModelType | None:
+    id = formatId(resource_type, id)
+    model = MODEL_MAP[resource_type]
+    return (db.session.query(model)
+            .filter(model.id == id, model.deleted_at.is_(None))
+            .first())
 
 
-def get(type: str, id: str) -> ModelType | None:
-    id = formatId(type, id)
-    model = MODEL_MAP[type]
-    item = (
-        db.session.query(model)
-        .filter(model.id == id)
-        .filter(model.deleted_at.is_(None))
-        .first()
-    )
-    return item
+def _get_all(resource_type: str, page: int | None = None, limit: int | None = None,
+             sort: str = 'id', reverse: bool = False) -> list[ModelType]:
+    model = MODEL_MAP[resource_type]
+    query = (db.session.query(model)
+             .filter(model.deleted_at.is_(None))
+             .order_by(_order_by(model, sort, reverse)))
+    return _page(query, page, limit).all()
 
-def get_all(type: str, page: int | None = None, limit: int | None = None, sort: str = 'id', reverse: bool = False) -> list[ModelType]:
-    model = MODEL_MAP[type]
-    query = db.session.query(model).filter(model.deleted_at.is_(None))
-    query = query.order_by(_order_by(model, sort, reverse))
-    if page and limit:
-        page = max(1, page)
-        limit = min(max(1, limit), 100)
-        query = query.offset((page - 1) * limit).limit(limit)
-    return query.all()
 
-# Lifecycle columns: maintained here from `source`, never writable by a caller.
-PROTECTED_COLUMNS = {'id', 'created_at', 'updated_at', 'crawled_at', 'edited_at', 'deleted_at'}
+def _get_inactive(resource_type: str, id: str) -> ModelType | None:
+    id = formatId(resource_type, id)
+    model = MODEL_MAP[resource_type]
+    return (db.session.query(model)
+            .filter(model.id == id, model.deleted_at.is_not(None))
+            .first())
+
+
+def _get_inactive_all(resource_type: str, page: int | None = None,
+                      limit: int | None = None, sort: str = 'id',
+                      reverse: bool = False) -> list[ModelType]:
+    model = MODEL_MAP[resource_type]
+    query = (db.session.query(model)
+             .filter(model.deleted_at.is_not(None))
+             .order_by(_order_by(model, sort, reverse)))
+    return _page(query, page, limit).all()
+
 
 # `source` records what kind of write this is:
-#   'crawl' (default) — data fetched from the remote API; stamps crawled_at
+#   'crawl' (default) — data fetched from the remote API; stamps crawled_at with
+#                       `crawled_at` when given, because a reply that came
+#                       through a cache is as old as its fetch, not as new as
+#                       this write
 #   'edit'            — a manual user edit; stamps edited_at, which freezes the
 #                       row against automatic sync (see `updatable`)
 #   'refresh'         — explicit re-crawl of one row; stamps crawled_at and
 #                       clears edited_at, returning the row to the sync cycle
 #   None              — maintenance write (e.g. backfill); stamps neither
-def create(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl') -> ModelType | None:
-    id = formatId(type, id)
-    model = MODEL_MAP[type]
-    data = {k: v for k, v in data.items() if k != 'id'}
-    if exists(type, id):
+def _create(resource_type: str, id: str, data: dict[str, Any],
+            source: str | None = 'crawl',
+            crawled_at: datetime | None = None) -> ModelType | None:
+    id = formatId(resource_type, id)
+    if _exists(resource_type, id):
         return None
-    # Use cleanup to ensure deletion of any existing inactive items
-    cleanup(type, id)
-    item = model(id=id, **data)
+    # An id may still be held by a row in the trash, which would collide on the
+    # primary key.
+    _cleanup(resource_type, id)
+    item = MODEL_MAP[resource_type](
+        id=id, **{k: v for k, v in data.items() if k != 'id'})
     if source == 'crawl':
-        item.crawled_at = datetime.now(timezone.utc)
+        item.crawled_at = crawled_at or datetime.now(timezone.utc)
     elif source == 'edit':
         item.edited_at = datetime.now(timezone.utc)
     db.session.add(item)
     db.session.flush()
     return item
 
-def update(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl') -> ModelType | None:
-    id = formatId(type, id)
-    item = get(type, id)
+
+def _update(resource_type: str, id: str, data: dict[str, Any],
+            source: str | None = 'crawl',
+            crawled_at: datetime | None = None) -> ModelType | None:
+    item = _get(resource_type, id)
     if not item:
         return None
     columns = {c.name for c in item.__table__.columns}
@@ -140,7 +191,7 @@ def update(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl
     now = datetime.now(timezone.utc)
     item.updated_at = now
     if source == 'crawl':
-        item.crawled_at = now
+        item.crawled_at = crawled_at or now
     elif source == 'edit':
         item.edited_at = now
     elif source == 'refresh':
@@ -149,118 +200,167 @@ def update(type: str, id: str, data: dict[str, Any], source: str | None = 'crawl
     db.session.flush()
     return item
 
-def delete(type: str, id: str) -> ModelType | None:
-    id = formatId(type, id)
-    item = get(type, id)
+
+def _delete(resource_type: str, id: str) -> ModelType | None:
+    item = _get(resource_type, id)
     if not item:
         return None
     item.deleted_at = datetime.now(timezone.utc)
     db.session.flush()
     return item
 
-def delete_all(type: str) -> int:
-    model = MODEL_MAP[type]
-    current_time = datetime.now(timezone.utc)
-    count = (
-        db.session.query(model)
-        .filter(model.deleted_at.is_(None))
-        .update({model.deleted_at: current_time})
-    )
+
+def _delete_all(resource_type: str) -> int:
+    model = MODEL_MAP[resource_type]
+    count = (db.session.query(model)
+             .filter(model.deleted_at.is_(None))
+             .update({model.deleted_at: datetime.now(timezone.utc)}))
     db.session.flush()
     return count
 
 
-def get_inactive(type: str, id: str) -> ModelType | None:
-    id = formatId(type, id)
-    model = MODEL_MAP[type]
-    item = (
-        db.session.query(model)
-        .filter(model.id == id)
-        .filter(model.deleted_at.is_not(None))
-        .first()
-    )
-    return item
-
-def get_inactive_all(type: str, page: int | None = None, limit: int | None = None, sort: str = 'id', reverse: bool = False) -> list[ModelType]:
-    model = MODEL_MAP[type]
-    query = db.session.query(model).filter(model.deleted_at.is_not(None))
-    query = query.order_by(_order_by(model, sort, reverse))
-    if page and limit:
-        page = max(1, page)
-        limit = min(max(1, limit), 100)
-        query = query.offset((page - 1) * limit).limit(limit)
-    return query.all()
-
-def recover(type: str, id: str) -> ModelType | None:
-    id = formatId(type, id)
-    item = get_inactive(type, id)
+def _recover(resource_type: str, id: str) -> ModelType | None:
+    item = _get_inactive(resource_type, id)
     if not item:
         return None
     item.deleted_at = None
     db.session.flush()
     return item
 
-def recover_all(type: str) -> int:
-    model = MODEL_MAP[type]
-    count = (
-        db.session.query(model)
-        .filter(model.deleted_at.is_not(None))
-        .update({model.deleted_at: None})
-    )
+
+def _recover_all(resource_type: str) -> int:
+    model = MODEL_MAP[resource_type]
+    count = (db.session.query(model)
+             .filter(model.deleted_at.is_not(None))
+             .update({model.deleted_at: None}))
     db.session.flush()
     return count
 
-def cleanup(type: str, id: str) -> ModelType | None:
-    id = formatId(type, id)
-    item = get_inactive(type, id)
+
+def _cleanup(resource_type: str, id: str) -> ModelType | None:
+    item = _get_inactive(resource_type, id)
     if not item:
         return None
     db.session.delete(item)
     db.session.flush()
     return item
 
-def cleanup_all(type: str) -> int:
-    items = get_inactive_all(type)
-    count = len(items)
+
+def _cleanup_all(resource_type: str) -> int:
+    items = _get_inactive_all(resource_type)
     for item in items:
         db.session.delete(item)
     db.session.flush()
-    return count
+    return len(items)
 
 
-@db_transaction
-def get_save(*args, **kwargs) -> ModelType | None: return get(*args, **kwargs)
+# ─── The public names ─────────────────────────────────────────────────────────
 
-@db_transaction
-def get_all_save(*args, **kwargs) -> list[ModelType]: return get_all(*args, **kwargs)
-
-@db_transaction
-def create_save(*args, **kwargs) -> ModelType | None: return create(*args, **kwargs)
-
-@db_transaction
-def update_save(*args, **kwargs) -> ModelType | None: return update(*args, **kwargs)
-
-@db_transaction
-def delete_save(*args, **kwargs) -> ModelType | None: return delete(*args, **kwargs)
-
-@db_transaction
-def delete_all_save(*args, **kwargs) -> int: return delete_all(*args, **kwargs)
+@translates_db_errors
+def exists(resource_type: str, id: str) -> bool:
+    return _exists(resource_type, id)
 
 
-@db_transaction
-def get_inactive_save(*args, **kwargs) -> ModelType | None: return get_inactive(*args, **kwargs)
+@translates_db_errors
+def count_all(resource_type: str) -> int:
+    model = MODEL_MAP[resource_type]
+    return db.session.query(model).filter(model.deleted_at.is_(None)).count()
 
-@db_transaction
-def get_inactive_all_save(*args, **kwargs) -> list[ModelType]: return get_inactive_all(*args, **kwargs)
 
-@db_transaction
-def recover_save(*args, **kwargs) -> ModelType | None: return recover(*args, **kwargs)
+@translates_db_errors
+def count_inactive_all(resource_type: str) -> int:
+    model = MODEL_MAP[resource_type]
+    return db.session.query(model).filter(model.deleted_at.is_not(None)).count()
 
-@db_transaction
-def recover_all_save(*args, **kwargs) -> int: return recover_all(*args, **kwargs)
 
-@db_transaction
-def cleanup_save(*args, **kwargs) -> int: return cleanup(*args, **kwargs)
+@translates_db_errors
+def updatable(resource_type: str, id: str,
+              update_interval: timedelta = AUTO_CRAWL_INTERVAL) -> bool:
+    """Whether an automatic crawl may overwrite this row.
 
-@db_transaction
-def cleanup_all_save(*args, **kwargs) -> dict[str, int]: return cleanup_all(*args, **kwargs)
+    A row nobody holds is free to be written, and so is one that was never
+    crawled. A hand-edited row never is: an automatic sync would destroy the
+    edit silently. Freshness is judged on `crawled_at` rather than `updated_at`,
+    which any write bumps, including the edit this is meant to protect.
+
+    Explicit refresh paths bypass this and clear `edited_at`, which is how a row
+    returns to the cycle.
+    """
+    item = _get(resource_type, id)
+    if not item:
+        return True
+    if item.edited_at is not None:
+        return False
+    last_crawl = item.crawled_at or item.updated_at
+    if last_crawl is None:
+        return True
+    return datetime.now(timezone.utc) - last_crawl > update_interval
+
+
+@translates_db_errors
+def get(resource_type: str, id: str) -> ModelType | None:
+    return _get(resource_type, id)
+
+
+@translates_db_errors
+def get_all(resource_type: str, page: int | None = None, limit: int | None = None,
+            sort: str = 'id', reverse: bool = False) -> list[ModelType]:
+    return _get_all(resource_type, page, limit, sort, reverse)
+
+
+@translates_db_errors
+def get_inactive(resource_type: str, id: str) -> ModelType | None:
+    return _get_inactive(resource_type, id)
+
+
+@translates_db_errors
+def get_inactive_all(resource_type: str, page: int | None = None,
+                     limit: int | None = None, sort: str = 'id',
+                     reverse: bool = False) -> list[ModelType]:
+    return _get_inactive_all(resource_type, page, limit, sort, reverse)
+
+
+@commits
+def create(resource_type: str, id: str, data: dict[str, Any],
+           source: str | None = 'crawl',
+           crawled_at: datetime | None = None) -> ModelType | None:
+    """The row as written, or None where one already holds that id."""
+    return _create(resource_type, id, data, source, crawled_at)
+
+
+@commits
+def update(resource_type: str, id: str, data: dict[str, Any],
+           source: str | None = 'crawl',
+           crawled_at: datetime | None = None) -> ModelType | None:
+    """The row as written, or None where there is no such row."""
+    return _update(resource_type, id, data, source, crawled_at)
+
+
+@commits
+def delete(resource_type: str, id: str) -> ModelType | None:
+    return _delete(resource_type, id)
+
+
+@commits
+def delete_all(resource_type: str) -> int:
+    return _delete_all(resource_type)
+
+
+@commits
+def recover(resource_type: str, id: str) -> ModelType | None:
+    return _recover(resource_type, id)
+
+
+@commits
+def recover_all(resource_type: str) -> int:
+    return _recover_all(resource_type)
+
+
+@commits
+def cleanup(resource_type: str, id: str) -> ModelType | None:
+    return _cleanup(resource_type, id)
+
+
+@commits
+def cleanup_all(resource_type: str) -> int:
+    return _cleanup_all(resource_type)

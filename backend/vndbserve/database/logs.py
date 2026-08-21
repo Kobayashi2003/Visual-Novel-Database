@@ -1,8 +1,7 @@
 """The `logs` table — what logserve reads.
 
-Not part of operations.py: that module is every read and write against the
-mirrored tables, and this one is neither mirrored nor part of a request's own
-work.
+Not part of operations.py: this table is neither mirrored nor part of a
+request's own work. See README.md.
 """
 
 import uuid
