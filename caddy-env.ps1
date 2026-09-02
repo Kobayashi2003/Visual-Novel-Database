@@ -34,10 +34,23 @@ $dotenv = Read-DotEnv (Join-Path $backendDir '.env')
 # cold connection to an IPv4-only listener would eat a ~20s IPv6 timeout.
 $vars = @{ NEXT_UPSTREAM = "127.0.0.1:$NextPort" }
 
-$defaults = @{ VNDB = 5000; IMGSERVE = 5001; USERSERVE = 5002
+# Keyed by the service's own name, which is also the prefix its port variable
+# carries in backend/.env and the one Caddyfile.snippet expands — VNDBSERVE_PORT
+# feeding VNDBSERVE_UPSTREAM. (It used to say VNDB here, so the snippet's
+# {$VNDBSERVE_UPSTREAM} silently fell through to its default and only worked
+# because the default matched.)
+#
+# The environment outranks .env: each Flask app reads {NAME}_PORT from its own
+# environment and python-dotenv does not overwrite what is already there, so a
+# caller that places the ports (app-gateway does, so it can guarantee no two apps
+# collide) is obeyed by this edge as well as by the services.
+$defaults = @{ VNDBSERVE = 5000; IMGSERVE = 5001; USERSERVE = 5002
                TRANSSERVE = 5003; MUSICSERVE = 5004 }
 foreach ($app in $defaults.GetEnumerator()) {
-    $port = if ($dotenv["$($app.Key)_PORT"]) { $dotenv["$($app.Key)_PORT"] } else { $app.Value }
+    $name = "$($app.Key)_PORT"
+    $port = if ([Environment]::GetEnvironmentVariable($name)) { [Environment]::GetEnvironmentVariable($name) }
+            elseif ($dotenv[$name])                          { $dotenv[$name] }
+            else                                             { $app.Value }
     $vars["$($app.Key)_UPSTREAM"] = "127.0.0.1:$port"
 }
 

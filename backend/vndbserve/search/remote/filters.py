@@ -138,6 +138,8 @@ class VNDBFilters:
     }
 
 
+# ─── One parameter as a Kana filter expression ────────────────────────────────
+
 def build_filter(filter_set: dict[str, VNDBFilter], key: str, value: Any) -> list:
     if key not in filter_set:
         raise Failed('internal_error', f"Invalid key: {key}")
@@ -152,7 +154,10 @@ def build_filter(filter_set: dict[str, VNDBFilter], key: str, value: Any) -> lis
         if match:
             operator, filter_value = match.groups()
 
-    if not filter_value:
+    # Absent, not merely falsy: `False` and `0` are values the type branches
+    # below are written to accept, and the builders hand booleans down already
+    # converted. Testing truthiness here refused every `=false` filter.
+    if filter_value is None             or (isinstance(filter_value, str) and not filter_value.strip())             or (isinstance(filter_value, (list, tuple, dict)) and not filter_value):
         raise Rejected('invalid_request', f"Invalid value: {value}")
 
     if isinstance(filter_value, str):
@@ -180,6 +185,18 @@ def build_filter(filter_set: dict[str, VNDBFilter], key: str, value: Any) -> lis
             # [id, max_spoiler (0-2)].
             if isinstance(filter_value, list) and len(filter_value) != 2:
                 raise Rejected('invalid_request', f"Invalid value: {value}")
+        elif key in ('resolution', 'resolution_aspect') and isinstance(filter_value, str):
+            # `WIDTHxHEIGHT`, the shape the parameter is documented as and the
+            # one the local side parses; `w,h` and `[w,h]` are taken too, since
+            # Kana states the value that way. Refused rather than dropped: a
+            # filter silently discarded answers with every row and nothing to
+            # say the caller was not heard.
+            axes = re.match(r'^\[?\s*(\d+)\s*[x,]\s*(\d+)\s*\]?$', filter_value.strip())
+            if not axes:
+                raise Rejected('invalid_request',
+                               f"Invalid {key}: {value}. Use 'WIDTHxHEIGHT', "
+                               f"optionally led by a comparison such as '>='.")
+            filter_value = [int(axes.group(1)), int(axes.group(2))]
         elif not isinstance(filter_value, list):
             raise Rejected('invalid_request', f"Invalid value: {value}")
 
@@ -260,11 +277,15 @@ def build_filters(filter_set: dict[str, VNDBFilter], filters: dict[str, Any]) ->
     return [] if not result else result[0] if len(result) == 1 else ["and"] + result
 
 
+# ─── Reading a multi-value expression ─────────────────────────────────────────
+
 def parse_logical_expression(expression: str, field: str,
                              value_wrapper: Callable[[str], Any] | None = None) -> dict[str, Any]:
-    """
-    Parse logical expression using two stacks.
-    Operators: OR (',', lower precedence) and AND ('+', higher precedence)
+    """`expression` as the nested `and`/`or` form Kana takes.
+
+    `,` is OR and `+` is AND, and AND binds tighter — `a,b+c` reads as
+    `a or (b and c)`. Two stacks carry the operators and the operands, so a
+    sub-expression is folded as soon as the next operator cannot wait.
 
     `value_wrapper`, when given, transforms each leaf value before it is stored
     (e.g. wrapping a bare tag id into the `[id, spoiler, level]` array form).
@@ -274,8 +295,10 @@ def parse_logical_expression(expression: str, field: str,
 
     wrap = value_wrapper if value_wrapper is not None else (lambda v: v)
 
+    # Both fold a pair into one node, flattening rather than nesting: `a,b,c`
+    # becomes one `{"or": [a, b, c]}` and not `{"or": [a, {"or": [b, c]}]}`.
+    # Kana accepts either, but the flat form is what its own filters look like.
     def or_operation(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-        """Merge OR operations"""
         if isinstance(left, dict) and "or" in left:
             if isinstance(right, dict) and "or" in right:
                 return {"or": left["or"] + right["or"]}
@@ -287,7 +310,6 @@ def parse_logical_expression(expression: str, field: str,
         return {"or": [left, right]}
 
     def and_operation(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-        """Merge AND operations"""
         if isinstance(left, dict) and "and" in left:
             if isinstance(right, dict) and "and" in right:
                 return {"and": left["and"] + right["and"]}
@@ -460,6 +482,8 @@ def parse_trait_expression(expression: str, directly: bool = False, spoil: bool 
     wrapper = (lambda trait_id: [trait_id, 2]) if spoil else None
     return parse_logical_expression(new_expression, field, wrapper)
 
+# ─── Reading a scalar value ───────────────────────────────────────────────────
+
 def parse_int(value: str | None, comparable: bool = False) -> str | None:
     value = value.replace(" ", "")
     pattern = r'^(>=|<=|>|<|=|!=)?(\d+)$' if comparable else r'^(\d+)$'
@@ -479,20 +503,22 @@ def parse_birthday(value: str) -> list[int] | None:
     return None
 
 
+# ─── Filters this service adds to the API set ─────────────────────────────────
+
 def get_vn_additional_filters(params: dict[str, Any]) -> dict[str, Any]:
     filters = []
 
     if release_id := params.get('release_id'):
-        filters.append({"release": ["id", "=", release_id]})
+        filters.append({"release": {"id": release_id}})
 
     if character_id := params.get('character_id'):
-        filters.append({"character": ["id", "=", character_id]})
+        filters.append({"character": {"id": character_id}})
 
     if staff_id := params.get('staff_id'):
-        filters.append({"staff": ["id", "=", staff_id]})
+        filters.append({"staff": {"id": staff_id}})
 
     if developer_id := params.get('developer_id'):
-        filters.append({"developer": ["id", "=", developer_id]})
+        filters.append({"developer": {"id": developer_id}})
 
     # Spoiler-aware tag variants: map onto the API `tag`/`dtag` filter using
     # its [id, max_spoiler, min_level] array form (max_spoiler = 2).
@@ -519,10 +545,10 @@ def get_release_additional_filters(params: dict[str, Any]) -> dict[str, Any]:
     filters = []
 
     if vn_id := params.get('vn_id'):
-        filters.append({"vn": ["id", "=", vn_id]})
+        filters.append({"vn": {"id": vn_id}})
 
     if producer_id := params.get('producer_id'):
-        filters.append({"producer": ["id", "=", producer_id]})
+        filters.append({"producer": {"id": producer_id}})
 
     return filters
 
@@ -530,7 +556,7 @@ def get_character_additional_filters(params: dict[str, Any]) -> dict[str, Any]:
     filters = []
 
     if vn_id := params.get('vn_id'):
-        filters.append({"vn": ["id", "=", vn_id]})
+        filters.append({"vn": {"id": vn_id}})
 
     # Spoiler-aware trait variants: map onto the API `trait`/`dtrait` filter
     # using its [id, max_spoiler] array form (max_spoiler = 2).
@@ -573,6 +599,8 @@ def get_trait_additional_filters(params: dict[str, Any]) -> dict[str, Any]:
     return filters
 
 
+# ─── One builder per resource type ────────────────────────────────────────────
+
 def get_vn_filters(params: dict[str, Any]) -> dict[str, Any]:
     """The Kana API filter list for a visual novel search, built from `params`."""
     filters = []
@@ -601,7 +629,12 @@ def get_vn_filters(params: dict[str, Any]) -> dict[str, Any]:
             if parsed := parse_logical_expression(value, 'search'):
                 filters.append({field: parsed})
 
-    uncomparable_numeric_fields = ['devstatus']
+    if 'label' in params:
+        raise Rejected('invalid_request',
+                       "The 'label' search field selects from a user's own list, "
+                       "which this service does not carry.")
+
+    uncomparable_numeric_fields = ['devstatus', 'anime_id']
     for field in uncomparable_numeric_fields:
         if value := params.get(field):
             if parsed := parse_int(value):
@@ -633,7 +666,12 @@ def get_release_filters(params: dict[str, Any]) -> dict[str, Any]:
     if search := params.get('search'):
         filters.append({"search": search})
 
-    multi_value_fields = ['lang', 'platform', 'medium', 'drm', 'image']
+    # `image` is absent on purpose. Locally it selects releases carrying an
+    # image of a given type; Kana's filter of that name only compares against
+    # null — whether there is an image at all — so no value this service is
+    # given can be expressed here. Leaving it unread makes the derivation in
+    # search/params classify it local-only, and `both` serves it from there.
+    multi_value_fields = ['lang', 'platform', 'medium', 'drm']
     for field in multi_value_fields:
         if value := params.get(field):
             if parsed := parse_logical_expression(value, field):
@@ -644,11 +682,7 @@ def get_release_filters(params: dict[str, Any]) -> dict[str, Any]:
 
     for field in ['resolution', 'resolution_aspect']:
         if value := params.get(field):
-            try:
-                width, height = map(int, value.strip('[]').split(','))
-                filters.append({field: [width, height]})
-            except ValueError:
-                pass  # Invalid format, skip this filter
+            filters.append({field: value})
 
     uncomparable_numeric_fields = ['voiced']
     for field in uncomparable_numeric_fields:
@@ -821,6 +855,8 @@ def get_trait_filters(params: dict[str, Any]) -> dict[str, Any]:
     return {"and": filters} if len(filters) > 1 else filters[0] if filters else {}
 
 
+# ─── Dispatch ─────────────────────────────────────────────────────────────────
+
 def get_remote_filters(search_type: str, params: dict[str, Any]) -> list:
     """Dispatch to the per-type builder. Raises ValueError on an unknown type."""
 
@@ -840,15 +876,3 @@ def get_remote_filters(search_type: str, params: dict[str, Any]) -> list:
         return build_filters(VNDBFilters.TRAIT, get_trait_filters(params))
     else:
         raise Failed('internal_error', f"Invalid search_type: {search_type}")
-
-
-if __name__ == '__main__':
-    print(get_remote_filters(
-        search_type='vn',
-        params={
-            'id': '17',
-            # 'search': 'ai kiss',
-            # 'id': '((v1,v2)+(v6,v7,v8))',
-            # 'tag': 'Gang Rape + Unavoidable Rape',
-        }
-    ))

@@ -3,9 +3,9 @@ from flask_cors import CORS
 from flask_migrate import Migrate
 from werkzeug.exceptions import HTTPException
 from .config import Config
-from .errors import http_error_code
+from .errors import ServiceError, error_status, http_error_code
 from .extensions import (
-    ExtSQLAchemy, ExtCache, ExtCelery, ExtAPScheduler
+    ExtSQLAlchemy, ExtCache, ExtCelery, ExtAPScheduler
 )
 
 
@@ -28,7 +28,7 @@ def create_app(config_class=Config, enable_scheduler=True):
         "max_age": 600
     }})
 
-    db = ExtSQLAchemy(app)
+    db = ExtSQLAlchemy(app)
     migrate = Migrate(app, db)
     cache = ExtCache(app)
     celery = ExtCelery(app)
@@ -39,11 +39,21 @@ def create_app(config_class=Config, enable_scheduler=True):
         from .schedule.simple import simple_schedule
         from .schedule.backup import backup_database_schedule
         from .schedule.fetch import fetch_new_schedule, fetch_backfill_schedule
+        from .schedule.dump import dump_ingest_schedule
     else:
         scheduler = None
 
     @app.errorhandler(Exception)
     def handle_exception(e):
+        # The one final handler for the HTTP entry point; nothing leaves it
+        # unclassified. An error that arrived already classified carries its own
+        # code and status, and only a defect of ours is logged with a traceback.
+        if isinstance(e, ServiceError):
+            if e.kind == 'failed':
+                app.logger.error(f"{e.code}: {e.message} {e.context}", exc_info=True)
+            elif e.kind == 'unavailable':
+                app.logger.warning(f"{e.code}: {e.message} {e.context}")
+            return jsonify(error=e.code, message=e.message), error_status(e.kind, e.code)
         # A handler for Exception also catches HTTPException, which would turn
         # routing-level errors (404, 405, ...) into a 500.
         if isinstance(e, HTTPException):

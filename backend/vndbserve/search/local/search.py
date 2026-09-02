@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import asc, desc
 
 from vndbserve.database.models import MODEL_MAP
+from vndbserve.database.operations import translates_db_errors, sort_column
 from vndbserve.errors import Failed, Rejected
 
 from .fields import get_local_fields, validate_sort
@@ -18,6 +19,8 @@ from .filters import get_local_filters
 from ..common import log_search
 from ..params import validate_params
 
+
+# ─── Logging a query ──────────────────────────────────────────────────────────
 
 def _jsonable(value: Any) -> Any:
     """Coerce a bound SQL parameter into something JSON-serializable so it can
@@ -32,6 +35,9 @@ def _jsonable(value: Any) -> Any:
         return value.isoformat()
     return str(value)
 
+# ─── Searching ────────────────────────────────────────────────────────────────
+
+@translates_db_errors
 def search(resource_type: str, params: dict[str, Any],
            response_size: str = 'small', page: int = 1, limit: int = 100,
            sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
@@ -56,7 +62,7 @@ def search(resource_type: str, params: dict[str, Any],
 
     order_func = desc if reverse else asc
     sort = validate_sort(resource_type, sort)
-    query = query.order_by(order_func(getattr(model, sort)))
+    query = query.order_by(order_func(sort_column(model, sort)))
 
     page = max(1, page or 1)
     limit = min(max(1, limit or 20), 100)
@@ -98,6 +104,9 @@ def search(resource_type: str, params: dict[str, Any],
 
     return {'results': results, 'more': more, 'count': total} if count else {'results': results, 'more': more}
 
+# ─── Relation navigation ──────────────────────────────────────────────────────
+
+@translates_db_errors
 def search_resources_by_vnid(vnid: str, related_resource_type: str, response_size: str = 'small',
                              page: int = 1, limit: int = 100, sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
 
@@ -140,7 +149,7 @@ def search_resources_by_vnid(vnid: str, related_resource_type: str, response_siz
 
     order_func = desc if reverse else asc
     sort = validate_sort(related_resource_type, sort)
-    query = query.order_by(order_func(getattr(model, sort)))
+    query = query.order_by(order_func(sort_column(model, sort)))
 
     page = max(1, page)
     limit = min(max(1, limit), 100)
@@ -151,6 +160,7 @@ def search_resources_by_vnid(vnid: str, related_resource_type: str, response_siz
 
     return {'results': results, 'more': more, 'count': total} if count else {'results': results, 'more': more}
 
+@translates_db_errors
 def search_resources_by_charid(charid: str, related_resource_type: str, response_size: str = 'small',
                                page: int = 1, limit: int = 100, sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
     Character = MODEL_MAP['character']
@@ -184,7 +194,7 @@ def search_resources_by_charid(charid: str, related_resource_type: str, response
 
     order_func = desc if reverse else asc
     sort = validate_sort(related_resource_type, sort)
-    query = query.order_by(order_func(getattr(model, sort)))
+    query = query.order_by(order_func(sort_column(model, sort)))
 
     page = max(1, page)
     limit = min(max(1, limit), 100)
@@ -195,6 +205,7 @@ def search_resources_by_charid(charid: str, related_resource_type: str, response
 
     return {'results': results, 'more': more, 'count': total} if count else {'results': results, 'more': more}
 
+@translates_db_errors
 def search_resources_by_release_id(release_id: str, related_resource_type: str, response_size: str = 'small',
                                    page: int = 1, limit: int = 100, sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
     Release = MODEL_MAP['release']
@@ -228,7 +239,7 @@ def search_resources_by_release_id(release_id: str, related_resource_type: str, 
 
     order_func = desc if reverse else asc
     sort = validate_sort(related_resource_type, sort)
-    query = query.order_by(order_func(getattr(model, sort)))
+    query = query.order_by(order_func(sort_column(model, sort)))
 
     page = max(1, page)
     limit = min(max(1, limit), 100)
@@ -239,14 +250,19 @@ def search_resources_by_release_id(release_id: str, related_resource_type: str, 
 
     return {'results': results, 'more': more, 'count': total} if count else {'results': results, 'more': more}
 
+@translates_db_errors
 def search_vns_by_resource_id(resource_type: str, resource_id: str, response_size: str = 'small',
                               page: int = 1, limit: int = 100, sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
+    # `*_id` rather than the like-named search parameters: those match an id
+    # or a name, so an id passed to one also matches rows whose name merely
+    # contains it. `tag` has no `_id` form and needs none — it resolves the term
+    # to ids and matches by containment.
     param_key = {
         'tag': 'tag',
-        'character': 'character',
-        'staff': 'staff',
-        'producer': 'developer',
-        'release': 'release'
+        'character': 'character_id',
+        'staff': 'staff_id',
+        'producer': 'developer_id',
+        'release': 'release_id'
     }.get(resource_type)
 
     if param_key is None:
@@ -259,10 +275,11 @@ def search_vns_by_resource_id(resource_type: str, resource_id: str, response_siz
 
     return results
 
+@translates_db_errors
 def search_characters_by_resource_id(resource_type: str, resource_id: str, response_size: str = 'small',
                                      page: int = 1, limit: int = 100, sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
     param_key = {
-        'vn': 'vn',
+        'vn': 'vn_id',
         'trait': 'trait'
     }.get(resource_type)
 
@@ -276,11 +293,12 @@ def search_characters_by_resource_id(resource_type: str, resource_id: str, respo
 
     return results
 
+@translates_db_errors
 def search_releases_by_resource_id(resource_type: str, resource_id: str, response_size: str = 'small',
                                    page: int = 1, limit: int = 100, sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
     param_key = {
-        'vn': 'vn',
-        'producer': 'producer'
+        'vn': 'vn_id',
+        'producer': 'producer_id'
     }.get(resource_type)
 
     if param_key is None:

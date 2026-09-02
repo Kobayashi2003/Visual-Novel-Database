@@ -11,14 +11,17 @@ failures are retried with a backoff rather than surfaced immediately.
 import re
 import time
 import httpx
+from datetime import datetime, timezone
+from functools import wraps
 from typing import Any, Callable
 from enum import Enum
 
 from .filters import get_remote_filters
 from .fields import get_remote_fields, validate_sort
 from ..common import log_search
-from ..params import validate_params
-from vndbserve.errors import Failed, Unavailable
+from ..params import validate_params, local_only_params
+from vndbserve.errors import Failed, Rejected, Unavailable
+from vndbserve.logger import logger
 
 
 VNDB_API_URL = "https://api.vndb.org/kana"
@@ -27,6 +30,14 @@ VNDB_API_URL = "https://api.vndb.org/kana"
 RATE_LIMIT_MAX_RETRIES = 5
 RATE_LIMIT_BASE_DELAY = 1.0   # seconds; doubles each retry
 RATE_LIMIT_MAX_DELAY = 60.0   # seconds; backoff ceiling
+
+# How far a walk over every page will go. Termination otherwise rests on the
+# source reporting `more` correctly, and a source that always says there is
+# more is a worker looping until it runs out of memory.
+PAGE_CAP = 500
+
+
+# ─── The Kana client ──────────────────────────────────────────────────────────
 
 class VNDBEndpoint(Enum):
     VN = "vn"
@@ -40,10 +51,14 @@ class VNDBEndpoint(Enum):
 def raise_for_kana_status(response: httpx.Response) -> None:
     """Turn a non-2xx Kana reply into one of the three kinds.
 
-    A 5xx or a 429 is the API's own trouble, so it passes as Unavailable. Any
-    other 4xx means the API refused a request this service constructed, which
-    is a defect of ours — reporting it as Rejected would tell the caller to fix
-    something they never sent.
+    A 5xx or a 429 is the API's own trouble, so it passes as Unavailable.
+
+    Any other 4xx says the request was not acceptable, and everything in it
+    that varies came from the caller's parameters — `?role=voice` is refused
+    because Kana's enum spells that role `seiyuu`, which is the caller's to fix
+    and not ours. Kana names the field it objected to, so its own message
+    travels with the rejection. It is logged as well: a filter this service
+    built wrongly lands here too, and would otherwise leave no trace.
     """
     if response.is_success:
         return
@@ -58,11 +73,19 @@ def raise_for_kana_status(response: httpx.Response) -> None:
     if status == 429:
         raise Unavailable('upstream_rate_limited',
                           "The VNDB API is rate limiting this service.", context)
-    raise Failed('internal_error',
-                 "The VNDB API refused a request this service built.", context)
+    detail = response.text.strip()[:200] or "The VNDB API refused the request."
+    logger.warning(f"Kana refused a request: {detail} ({response.request.url})")
+    raise Rejected('invalid_request', detail, context)
 
 
 class VNDBAPIWrapper:
+    """The HTTP client for Kana, and the one place a request to it is made.
+
+    One client for the process: it keeps connections alive, so a crawl does not
+    open a socket per request. Rate limiting is waited out here rather than
+    reported upward — see `_request` for why that division exists.
+    """
+
     def __init__(self, api_token: str | None = None):
         self.client = httpx.Client(
             timeout=30.0,
@@ -188,6 +211,8 @@ class VNDBAPIWrapper:
 api = VNDBAPIWrapper()
 
 
+# ─── Wrapping a reply ─────────────────────────────────────────────────────────
+
 def memoize(timeout=60*60*24):
     try:
         from vndbserve import cache
@@ -195,19 +220,64 @@ def memoize(timeout=60*60*24):
     except ImportError:
         return lambda f: f
 
+def dated(search: Callable) -> Callable:
+    """Stamp a reply with when it was fetched.
+
+    Inside the memoized call, so a cached payload keeps the time it was really
+    fetched rather than the time it was served. Anything that stores the reply
+    must date the row from here, not from the clock at the moment of writing.
+    """
+    @wraps(search)
+    def run(*args, **kwargs):
+        results = search(*args, **kwargs)
+        if isinstance(results, dict):
+            results.setdefault('_fetched_at', datetime.now(timezone.utc).isoformat())
+        return results
+    return run
+
+
 def unpaginated_search(search_function: Callable, **kwargs) -> dict[str, Any]:
+    """Every page of `search_function`, as one reply.
+
+    `PAGE_CAP` bounds the walk. Termination otherwise rests on the source
+    reporting `more` correctly, and a source that always says there is more is
+    a worker looping until it runs out of memory.
+    """
     results = []
     page = 1
     more = True
-    while more:
+    while more and page <= PAGE_CAP:
         response = search_function(**kwargs, page=page)
         results.extend(response.get('results', []))
         more = response.get('more', False)
         page += 1
+    if more:
+        logger.warning(f"Stopped paging {getattr(search_function, '__name__', search_function)} "
+                       f"at {PAGE_CAP} pages with more still reported")
 
     return {'results': results, 'total': len(results), 'count': len(results)}
 
+def _as_page(value: Any, name: str) -> int:
+    """A positive whole number, or a rejection naming what was wrong with it."""
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        raise Rejected('invalid_request',
+                       f"'{name}' must be a whole number, not {value!r}")
+
+
 def paginated_results(results: dict[str, Any], sort: str = 'id', reverse: bool = False, limit: int = 10, page: int = 1, include_count: bool = True) -> dict[str, Any]:
+    """One page of an unpaginated reply, sorted.
+
+    `page` and `limit` are clamped to the same range the local search uses, so
+    that the two backends answer the same request the same way. Unclamped they
+    would slice with a negative bound — `items[0:-5]` is a different set, not an
+    empty one — and report `more` on a page that advanced nothing, which is a
+    loop for anything walking the pages.
+    """
+    page, limit = _as_page(page, 'page'), _as_page(limit, 'limit')
+    limit = min(limit, 100)
+
     if not results or 'results' not in results:
         return {'results': [], 'count': 0} if include_count else {'results': []}
 
@@ -237,9 +307,13 @@ def paginated_results(results: dict[str, Any], sort: str = 'id', reverse: bool =
     result = {'results': items, 'more': end_index < total}
     if include_count:
         result['count'] = total
+    if '_fetched_at' in results:
+        result['_fetched_at'] = results['_fetched_at']
 
     return result
 
+
+# ─── One endpoint per resource type ───────────────────────────────────────────
 
 def search_vn(filters: dict[str, Any], fields: list[str], page: int = 1, **kwargs) -> dict[str, Any]:
     return api.get_vn(filters, fields, page=page, **kwargs)
@@ -262,6 +336,8 @@ def search_trait(filters: dict[str, Any], fields: list[str], page: int = 1, **kw
 def search_release(filters: dict[str, Any], fields: list[str], page: int = 1, **kwargs) -> dict[str, Any]:
     return api.get_release(filters, fields, page=page, **kwargs)
 
+# ─── Fields Kana has no field for ─────────────────────────────────────────────
+
 def vn_additional_field_characters(vnid: str):
     characters = unpaginated_search(
         search_function=search_characters_by_resource_id_cache,
@@ -278,6 +354,13 @@ def vn_additional_field_releases(vnid: str):
     return releases
 
 def vn_additional_field_publishers(releases: list[dict[str, Any]]):
+    """The VN's publishers, derived from the releases it already carries.
+
+    Kana has no `publishers` field on a VN: a publisher is a producer marked
+    `publisher` on one of its releases, and which languages it published in is
+    the languages of that release. Both are read off the releases rather than
+    fetched again.
+    """
     release_languages = [
         [language['lang'] for language in release['languages']]
         for release in releases
@@ -311,6 +394,13 @@ def vn_additional_field_publishers(releases: list[dict[str, Any]]):
     return publishers
 
 def character_additional_field_seiyuu(character: dict[str, Any]):
+    """The character's voice actors, read out of the VNs they appear in.
+
+    Kana records a voice credit on the VN, not on the character, so this asks
+    the character's VNs for their `va` lists and keeps the entries pointing at
+    this character. The same actor credited in several VNs collapses to one
+    entry, keyed by who they are and the note that distinguishes a re-recording.
+    """
     charid = character['id']
 
     vns = get_vn_cache(
@@ -334,6 +424,9 @@ def character_additional_field_seiyuu(character: dict[str, Any]):
 
     return seiyuu
 
+# ─── Searching ────────────────────────────────────────────────────────────────
+
+@dated
 def search(resource_type: str, params: dict[str, Any], response_size: str = 'small',
            page: int = 1, limit: int = 100,
            sort: str = 'id', reverse: bool = False, count: bool = True) -> dict[str, Any]:
@@ -352,6 +445,14 @@ def search(resource_type: str, params: dict[str, Any], response_size: str = 'sma
         raise Failed('internal_error', f"Invalid search type: {resource_type}")
 
     validate_params(resource_type, params)
+
+    # A filter Kana has no equivalent for cannot be applied here. Dropping it
+    # would answer with rows it was never applied to, which is worse than not
+    # answering: nothing in the reply would say the filter had been ignored.
+    if unsupported := set(params) & local_only_params(resource_type):
+        raise Rejected('invalid_request',
+                       f"Search field(s) not available for remote searches: "
+                       f"{', '.join(sorted(unsupported))}")
 
     filters = get_remote_filters(resource_type, params)
     fields = get_remote_fields(resource_type, response_size)
@@ -384,6 +485,7 @@ def search(resource_type: str, params: dict[str, Any], response_size: str = 'sma
     return results
 
 
+@dated
 def search_resources_by_release_id(release_id: str, related_resource_type: str, response_size: str = "small") -> dict[str, Any]:
     url = "https://api.vndb.org/kana/release"
 
@@ -414,6 +516,7 @@ def search_resources_by_release_id(release_id: str, related_resource_type: str, 
 
     return {'results': results}
 
+@dated
 def search_resources_by_charid(charid: str, related_resource_type: str, response_size: str = "small") -> dict[str, Any]:
     url = "https://api.vndb.org/kana/character"
 
@@ -444,6 +547,7 @@ def search_resources_by_charid(charid: str, related_resource_type: str, response
 
     return {'results': results}
 
+@dated
 def search_resources_by_vnid(vnid: str, related_resource_type: str, response_size: str = "small") -> dict[str, Any]:
     url = "https://api.vndb.org/kana/vn"
 
@@ -478,6 +582,7 @@ def search_resources_by_vnid(vnid: str, related_resource_type: str, response_siz
 
     return {'results': results}
 
+@dated
 def search_releases_by_resource_id(resource_type: str, resource_id: str, response_size: str = 'small',
                                    sort: str = 'id', reverse: bool = False, limit: int = 10, page: int = 1, count: bool = True) -> dict[str, Any]:
     url = "https://api.vndb.org/kana/release"
@@ -504,6 +609,7 @@ def search_releases_by_resource_id(resource_type: str, resource_id: str, respons
 
     return response.json()
 
+@dated
 def search_characters_by_resource_id(resource_type: str, resource_id: str, response_size: str = 'small',
                                       sort: str = 'id', reverse: bool = False, limit: int = 10, page: int = 1, count: bool = True) -> dict[str, Any]:
     url = "https://api.vndb.org/kana/character"
@@ -531,6 +637,7 @@ def search_characters_by_resource_id(resource_type: str, resource_id: str, respo
 
     return response.json()
 
+@dated
 def search_vns_by_resource_id(resource_type: str, resource_id: str, response_size: str = 'small',
                               sort: str = 'id', reverse: bool = False, limit: int = 10, page: int = 1, count: bool = True) -> dict[str, Any]:
     url = "https://api.vndb.org/kana/vn"
@@ -574,59 +681,53 @@ def search_vns_by_resource_id(resource_type: str, resource_id: str, response_siz
     return results
 
 
+# ─── Cached and paginated forms ───────────────────────────────────────────────
+
 @memoize(timeout=3600)
 def get_vn_cache(*args, **kwargs): return api.get_vn(*args, **kwargs)
 
-@memoize(timeout=3600)
-def get_release_cache(*args, **kwargs): return api.get_release(*args, **kwargs)
-
-@memoize(timeout=3600)
-def get_character_cache(*args, **kwargs): return api.get_character(*args, **kwargs)
-
-@memoize(timeout=3600)
-def get_producer_cache(*args, **kwargs): return api.get_producer(*args, **kwargs)
-
-@memoize(timeout=3600)
-def get_staff_cache(*args, **kwargs): return api.get_staff(*args, **kwargs)
-
-@memoize(timeout=3600)
-def get_tag_cache(*args, **kwargs): return api.get_tag(*args, **kwargs)
-
-@memoize(timeout=3600)
-def get_trait_cache(*args, **kwargs): return api.get_trait(*args, **kwargs)
 
 @memoize(timeout=3600)
 def search_cache(*args, **kwargs): return search(*args, **kwargs)
 
+
 @memoize(timeout=3600)
 def search_resources_by_vnid_cache(*args, **kwargs): return search_resources_by_vnid(*args, **kwargs)
+
 
 @memoize(timeout=3600)
 def search_resources_by_charid_cache(*args, **kwargs): return search_resources_by_charid(*args, **kwargs)
 
+
 @memoize(timeout=3600)
 def search_resources_by_release_id_cache(*args, **kwargs): return search_resources_by_release_id(*args, **kwargs)
+
+
+@memoize(timeout=3600)
+def search_vns_by_resource_id_cache(*args, **kwargs): return search_vns_by_resource_id(*args, **kwargs)
+
+
+@memoize(timeout=3600)
+def search_characters_by_resource_id_cache(*args, **kwargs): return search_characters_by_resource_id(*args, **kwargs)
+
+
+@memoize(timeout=3600)
+def search_releases_by_resource_id_cache(*args, **kwargs): return search_releases_by_resource_id(*args, **kwargs)
+
 
 def search_resources_by_vnid_paginated(vnid: str, related_resource_type: str, response_size: str = "small",
                                        sort: str = 'id', reverse: bool = False, limit: int = 10, page: int = 1, count: bool = True) -> dict[str, Any]:
     return paginated_results(search_resources_by_vnid_cache(vnid, related_resource_type, response_size),
                              sort, reverse, limit, page, count)
 
+
 def search_resources_by_charid_paginated(charid: str, related_resource_type: str, response_size: str = "small",
                                          sort: str = 'id', reverse: bool = False, limit: int = 10, page: int = 1, count: bool = True) -> dict[str, Any]:
     return paginated_results(search_resources_by_charid_cache(charid, related_resource_type, response_size),
                              sort, reverse, limit, page, count)
 
+
 def search_resources_by_release_id_paginated(release_id: str, related_resource_type: str, response_size: str = "small",
                                              sort: str = 'id', reverse: bool = False, limit: int = 10, page: int = 1, count: bool = True) -> dict[str, Any]:
     return paginated_results(search_resources_by_release_id_cache(release_id, related_resource_type, response_size),
                              sort, reverse, limit, page, count)
-
-@memoize(timeout=3600)
-def search_vns_by_resource_id_cache(*args, **kwargs): return search_vns_by_resource_id(*args, **kwargs)
-
-@memoize(timeout=3600)
-def search_characters_by_resource_id_cache(*args, **kwargs): return search_characters_by_resource_id(*args, **kwargs)
-
-@memoize(timeout=3600)
-def search_releases_by_resource_id_cache(*args, **kwargs): return search_releases_by_resource_id(*args, **kwargs)

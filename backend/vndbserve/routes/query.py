@@ -10,8 +10,8 @@ blueprints did not claim, so a bad path reports an unknown resource type rather
 than a 404.
 """
 
-from flask import Blueprint, abort, jsonify, request
-from vndbserve.utils.ids import formatId, TYPE_BY_PREFIX
+from flask import Blueprint, abort, request
+from vndbserve.utils.ids import format_id, TYPE_BY_PREFIX
 from vndbserve.tasks.resources import (
     get_resources_task, search_resources_task, query_resources_task
 )
@@ -25,14 +25,43 @@ def _normalize(query):
     resource_type = TYPE_BY_PREFIX.get(query[0].lower())
     if not resource_type:
         abort(400, description="Invalid resource type")
-    try:
-        return resource_type, formatId(resource_type, query)
-    except ValueError:
-        abort(400, description=f"Invalid ID format: {query}")
+    return resource_type, format_id(resource_type, query)
 
 query_bp = Blueprint('query', __name__, url_prefix='/')
 
 QUERY_MODE = 'default'  # 'default' | 'local' | 'remote' | 'disabled'
+
+_SOURCES = {'local', 'remote', 'both'}
+
+
+def _read_source(params: dict) -> str:
+    """The `from` the caller asked for, refused if it names no source.
+
+    Left unchecked, a misspelling would silently fall through to `both` and be
+    answered from whichever side that picked — the caller would be told nothing
+    about the parameter having been ignored.
+    """
+    raw = params.pop('from', '')
+    if not raw:
+        return 'both'
+    source = str(raw).strip().lower()
+    if source not in _SOURCES:
+        abort(400, description=f"Expected one of {', '.join(sorted(_SOURCES))}, got: {raw!r}")
+    return source
+
+
+def _task_for(source: str):
+    """The task that answers from that source.
+
+    `from` and the operator's QUERY_MODE select among the same three, and the
+    mode wins where it is set — that is what pins a degraded deployment to one
+    side no matter what a caller asks for.
+    """
+    if source == 'remote' or QUERY_MODE == 'remote':
+        return search_resources_task
+    if source == 'local' or QUERY_MODE == 'local':
+        return get_resources_task
+    return query_resources_task
 
 
 @query_bp.route('/<string:query>/rg', methods=['GET'])
@@ -48,7 +77,7 @@ def handle_relation_graph(query):
 
     params = request.args.to_dict()
     depth = parse_int(params.pop('depth', None), GRAPH_DEPTH_CAP, 1, GRAPH_DEPTH_CAP)
-    official_only = params.pop('official_only', 'false').lower() == 'true'
+    official_only = parse_bool(params.pop('official_only', None), False)
 
     return execute_task(get_relation_graph_task, True, query, depth, official_only)
 
@@ -73,20 +102,11 @@ def handle_query(query):
         reverse = parse_bool(params.pop('reverse', None), False)
         count = parse_bool(params.pop('count', None), True)
 
-        search_from = params.pop('from', '')
+        source = _read_source(params)
         response_size = params.pop('response_size', 'large')
 
-        if search_from == 'remote' or QUERY_MODE == 'remote':
-            return execute_task(search_resources_task,
-                True, resource_type, params, response_size, page, limit, sort, reverse, count)
-
-        if search_from == 'local' or QUERY_MODE == 'local':
-            return execute_task(get_resources_task,
-                True, resource_type, params, response_size, page, limit, sort, reverse, count)
-
-        # both: freshness-aware local/remote composition (vndbserve/search/both)
-        return execute_task(query_resources_task,
-            True, resource_type, params, response_size, page, limit, sort, reverse, count)
+        return execute_task(_task_for(source), True, resource_type, params,
+                            response_size, page, limit, sort, reverse, count)
 
     elif len(query) > 1:
         try:
@@ -94,17 +114,8 @@ def handle_query(query):
         except ValueError:
             abort(400, description="Invalid ID format")
 
-        search_from = params.pop('from', '')
+        source = _read_source(params)
         response_size = params.pop('response_size', 'large')
 
-        if search_from == 'remote' or QUERY_MODE == 'remote':
-            return execute_task(search_resources_task,
-                True, resource_type, {'id': query}, response_size, 1, 1, 'id', False, True)
-
-        if search_from == 'local' or QUERY_MODE == 'local':
-            return execute_task(get_resources_task,
-                True, resource_type, {'id': query}, response_size, 1, 1, 'id', False, True)
-
-        # both: stale-while-revalidate detail lookup (vndbserve/search/both)
-        return execute_task(query_resources_task,
-            True, resource_type, {'id': query}, response_size, 1, 1, 'id', False, True)
+        return execute_task(_task_for(source), True, resource_type, {'id': query},
+                            response_size, 1, 1, 'id', False, True)

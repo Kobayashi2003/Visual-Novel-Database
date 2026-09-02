@@ -9,7 +9,8 @@ records a query for logserve to replay.
 
 import re
 
-from vndbserve.logger import add_log_entry, logger
+from vndbserve.logger import logger
+from vndbserve.database.logs import add_log_entry
 from vndbserve.errors import Failed
 
 
@@ -22,8 +23,7 @@ def log_search(source: str, message: str, details: dict | None = None, level: st
     can filter and replay by source.
 
     Best-effort by design: a logging failure must never break the search it is
-    observing, so any DB error is swallowed (and noted in the file log) after
-    rolling the session back to a clean state.
+    observing, so any DB error is swallowed and noted in the file log instead.
     """
     entry = {'from': source}
     if details:
@@ -31,11 +31,6 @@ def log_search(source: str, message: str, details: dict | None = None, level: st
     try:
         add_log_entry(level, message, entry)
     except Exception:
-        try:
-            from vndbserve import db
-            db.session.rollback()
-        except Exception:
-            pass
         logger.exception("Failed to record search log entry")
 
 
@@ -68,12 +63,14 @@ def convert_remote_to_local(entity_type, remote_data):
     if entity_type == 'vn':
         for field in ['relation', 'relation_official', 'role', 'spoiler', 'release', 'rtype']:
             local_data.pop(field, None)
-        local_data['released'] = process_released(local_data.pop('released'))
+        if 'released' in local_data:
+            local_data['released'] = process_released(local_data['released'])
 
     elif entity_type == 'character':
         for field in ['role', 'spoiler']:
             local_data.pop(field, None)
-        local_data['birthday'] = process_birthday(local_data.pop('birthday'))
+        if 'birthday' in local_data:
+            local_data['birthday'] = process_birthday(local_data['birthday'])
 
     elif entity_type == 'staff':
         for field in ['eid', 'role', 'note']:
@@ -92,8 +89,10 @@ def convert_remote_to_local(entity_type, remote_data):
             local_data.pop(field, None)
 
     elif entity_type == 'release':
-        local_data['resolution'] = process_resolution(local_data.pop('resolution', None))
-        local_data['released'] = process_released(local_data.pop('released'))
+        if 'resolution' in local_data:
+            local_data['resolution'] = process_resolution(local_data['resolution'])
+        if 'released' in local_data:
+            local_data['released'] = process_released(local_data['released'])
 
     else:
         raise Failed('internal_error', f"Unknown entity type: {entity_type}")

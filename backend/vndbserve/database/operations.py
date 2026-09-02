@@ -11,12 +11,12 @@ from typing import Any
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 
-from sqlalchemy import asc, desc
+from sqlalchemy import Integer, asc, desc, func
 from sqlalchemy.exc import SQLAlchemyError, OperationalError, InterfaceError
 
 from vndbserve import db
 from vndbserve.errors import Failed, Rejected, Unavailable
-from vndbserve.utils.ids import formatId
+from vndbserve.utils.ids import format_id
 from .models import MODEL_MAP, ModelType
 
 # How long after a crawl an automatic one may write the row again. It lives here
@@ -70,7 +70,7 @@ def translates_db_errors(func):
     return wrapper
 
 
-def commits(func):
+def _commits(func):
     """A write, committed before it returns.
 
     Undoing a failed write is the savepoint's own job — leaving the block by way
@@ -93,10 +93,24 @@ def commits(func):
     return wrapper
 
 
+def sort_column(model, sort: str):
+    """The expression a listing is ordered by.
+
+    An id is ordered by the number inside it. The column is text, so plain
+    ordering puts `v10` before `v9`, while the remote backend sorts them
+    numerically — and `id` is the default sort, so every unordered listing
+    would be paged one way locally and another way remotely.
+    """
+    column = getattr(model, sort)
+    if sort == 'id':
+        return func.cast(func.substring(column, r'\d+'), Integer)
+    return column
+
+
 def _order_by(model, sort: str, reverse: bool):
     if sort not in {c.name for c in model.__table__.columns}:
         raise Rejected('invalid_request', f"Invalid sort column: {sort}")
-    return (desc if reverse else asc)(getattr(model, sort))
+    return (desc if reverse else asc)(sort_column(model, sort))
 
 
 def _page(query, page: int | None, limit: int | None):
@@ -108,13 +122,13 @@ def _page(query, page: int | None, limit: int | None):
 # ─── The work ─────────────────────────────────────────────────────────────────
 
 def _exists(resource_type: str, id: str) -> bool:
-    id = formatId(resource_type, id)
+    id = format_id(resource_type, id)
     item = db.session.get(MODEL_MAP[resource_type], id)
     return item is not None and item.deleted_at is None
 
 
 def _get(resource_type: str, id: str) -> ModelType | None:
-    id = formatId(resource_type, id)
+    id = format_id(resource_type, id)
     model = MODEL_MAP[resource_type]
     return (db.session.query(model)
             .filter(model.id == id, model.deleted_at.is_(None))
@@ -131,7 +145,7 @@ def _get_all(resource_type: str, page: int | None = None, limit: int | None = No
 
 
 def _get_inactive(resource_type: str, id: str) -> ModelType | None:
-    id = formatId(resource_type, id)
+    id = format_id(resource_type, id)
     model = MODEL_MAP[resource_type]
     return (db.session.query(model)
             .filter(model.id == id, model.deleted_at.is_not(None))
@@ -161,7 +175,7 @@ def _get_inactive_all(resource_type: str, page: int | None = None,
 def _create(resource_type: str, id: str, data: dict[str, Any],
             source: str | None = 'crawl',
             crawled_at: datetime | None = None) -> ModelType | None:
-    id = formatId(resource_type, id)
+    id = format_id(resource_type, id)
     if _exists(resource_type, id):
         return None
     # An id may still be held by a row in the trash, which would collide on the
@@ -268,6 +282,34 @@ def count_all(resource_type: str) -> int:
 
 
 @translates_db_errors
+def deleted_among(resource_type: str, ids: list[str]) -> set[str]:
+    """Which of `ids` name a soft-deleted row.
+
+    For a caller holding ids from somewhere other than a query — a parent row's
+    relation column, which records what the API reported and knows nothing of a
+    later delete. Asking by id keeps the read bounded by the list in hand.
+    """
+    if not ids:
+        return set()
+    model = MODEL_MAP[resource_type]
+    return {row.id for row in db.session.query(model.id)
+            .filter(model.id.in_(ids), model.deleted_at.is_not(None))}
+
+
+@translates_db_errors
+def all_ids(resource_type: str) -> set[str]:
+    """Every live id, without the rows they belong to.
+
+    The dump ingest compares what a snapshot holds against what is stored, and
+    needs only the ids to do it. Reading the rows for that loads every JSONB
+    relation column with them — for `vn` about 1.9 GB where the ids are 8 MB.
+    """
+    model = MODEL_MAP[resource_type]
+    return {row.id for row in
+            db.session.query(model.id).filter(model.deleted_at.is_(None))}
+
+
+@translates_db_errors
 def count_inactive_all(resource_type: str) -> int:
     model = MODEL_MAP[resource_type]
     return db.session.query(model).filter(model.deleted_at.is_not(None)).count()
@@ -320,7 +362,7 @@ def get_inactive_all(resource_type: str, page: int | None = None,
     return _get_inactive_all(resource_type, page, limit, sort, reverse)
 
 
-@commits
+@_commits
 def create(resource_type: str, id: str, data: dict[str, Any],
            source: str | None = 'crawl',
            crawled_at: datetime | None = None) -> ModelType | None:
@@ -328,7 +370,7 @@ def create(resource_type: str, id: str, data: dict[str, Any],
     return _create(resource_type, id, data, source, crawled_at)
 
 
-@commits
+@_commits
 def update(resource_type: str, id: str, data: dict[str, Any],
            source: str | None = 'crawl',
            crawled_at: datetime | None = None) -> ModelType | None:
@@ -336,31 +378,31 @@ def update(resource_type: str, id: str, data: dict[str, Any],
     return _update(resource_type, id, data, source, crawled_at)
 
 
-@commits
+@_commits
 def delete(resource_type: str, id: str) -> ModelType | None:
     return _delete(resource_type, id)
 
 
-@commits
+@_commits
 def delete_all(resource_type: str) -> int:
     return _delete_all(resource_type)
 
 
-@commits
+@_commits
 def recover(resource_type: str, id: str) -> ModelType | None:
     return _recover(resource_type, id)
 
 
-@commits
+@_commits
 def recover_all(resource_type: str) -> int:
     return _recover_all(resource_type)
 
 
-@commits
+@_commits
 def cleanup(resource_type: str, id: str) -> ModelType | None:
     return _cleanup(resource_type, id)
 
 
-@commits
+@_commits
 def cleanup_all(resource_type: str) -> int:
     return _cleanup_all(resource_type)

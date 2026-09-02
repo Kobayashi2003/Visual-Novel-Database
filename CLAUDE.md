@@ -11,5 +11,4 @@
 | [docs/standards/handling-success.md](docs/standards/handling-success.md) | The success codes and the status each becomes |
 | [docs/standards/handling-errors.md](docs/standards/handling-errors.md) | The life of an error: produced, propagated, handled |
 | [docs/standards/writing-comments.md](docs/standards/writing-comments.md) | The four comment kinds, and what gets no comment |
-| [docs/search/README.md](docs/search/README.md) | Taking a new Kana field, changing `small`, modes, caching, capability gaps |
 | [docs/api/README.md](docs/api/README.md) | The HTTP contract between the applications and their clients |

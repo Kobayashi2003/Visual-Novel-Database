@@ -6,18 +6,23 @@ can be derived, or from a fresh Kana API fetch where it cannot. Only the named
 column is written: the rest of the row, including any hand-edit, is left alone.
 
 Driven from POST /admin/backfill, which runs it on a background thread.
+
+Lives in the service layer, not in utils/: it reads through search and writes
+through the data layer, which a general-purpose helper may not do.
 """
 
 import time
 from enum import Enum, auto
 from typing import Any, Callable
 
-import httpx
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import JSONB as PgJSONB, ARRAY as PgARRAY
 
 from vndbserve.database import update as db_update, get as db_get
+from vndbserve.errors import Rejected
 from vndbserve.database.models import MODEL_MAP
+from .common import task
+from .envelope import format_results
 from vndbserve.search.local.search import search as local_search
 from vndbserve.search.remote.search import (
     search_vn, search_character, search_release,
@@ -30,7 +35,6 @@ from vndbserve.search.remote.filters import VNDBFilters, build_filters
 _DEFAULT_BATCH_SIZE     = 100
 _DEFAULT_DELAY          = 2.0            # seconds between batch requests
 _DEFAULT_OVERWRITE_NULL = False          # whether to write a null value obtained from a successful fetch
-_RETRY_DELAYS           = [30, 60, 120]  # seconds to wait on successive 429 responses
 TEST                    = False          # when True, log DB writes instead of executing them
 
 _SEARCH_FUNCTIONS: dict[str, Callable] = {
@@ -70,11 +74,11 @@ def _col_kind(resource_type: str, column_name: str) -> _ColKind:
     """Resolve the _ColKind for a column, raising ValueError if it doesn't exist."""
     model = MODEL_MAP.get(resource_type)
     if model is None:
-        raise ValueError(f"Unknown resource type: {resource_type!r}")
+        raise Rejected('invalid_request', f"Unknown resource type: {resource_type!r}")
     try:
         col_type = sa_inspect(model).columns[column_name].type
     except KeyError:
-        raise ValueError(f"'{resource_type}' has no column '{column_name}'")
+        raise Rejected('invalid_request', f"'{resource_type}' has no column '{column_name}'")
     if isinstance(col_type, PgARRAY):
         return _ColKind.SCALAR
     if isinstance(col_type, PgJSONB):
@@ -91,7 +95,8 @@ def _resolve_field(resource_type: str, field: str) -> tuple[str, str, _ColKind]:
     column, _, json_tail = field.partition(".")
     kind = _col_kind(resource_type, column)
     if json_tail and kind is not _ColKind.JSONB:
-        raise ValueError(
+        raise Rejected(
+            'invalid_request',
             f"Dotted path '{field}' is invalid: '{column}' is {kind.name}, only JSONB supports sub-key writes"
         )
     return column, json_tail, kind
@@ -122,20 +127,6 @@ def _id_filter(filter_set: Any, ids: list[str]) -> Any:
     if len(ids) == 1:
         return build_filters(filter_set, {"id": ids[0]})
     return build_filters(filter_set, {"or": [{"id": id_} for id_ in ids]})
-
-
-def _with_retry(fn: Callable, **kwargs) -> dict:
-    last_exc = None
-    for wait in [0, *_RETRY_DELAYS]:
-        if wait:
-            time.sleep(wait)
-        try:
-            return fn(**kwargs)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code != 429:
-                raise
-            last_exc = e
-    raise last_exc
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -169,7 +160,8 @@ def backfill_column(
     Returns (updated, total).
     """
     if ',' in field:
-        raise ValueError(f"'field' must be a single field name, not a comma-separated list: {field!r}")
+        raise Rejected('invalid_request',
+                       f"'field' must be a single field name, not a comma-separated list: {field!r}")
     column, json_tail, kind = _resolve_field(resource_type, field)  # validates early
 
     # First local page also gives the total count
@@ -198,8 +190,8 @@ def backfill_column(
             time.sleep(delay)
 
         try:
-            response = _with_retry(search_fn, filters=_id_filter(filter_set, ids),
-                                   fields=req_fields, results=batch_size, count=False)
+            response = search_fn(filters=_id_filter(filter_set, ids),
+                                 fields=req_fields, results=batch_size, count=False)
         except Exception as e:
             print(f"  fetch failed (batch {batch_num}/{num_batches}): {e}")
         else:
@@ -232,3 +224,14 @@ def backfill_column(
 
     print(f"[backfill] Done — {updated}/{total} updated.")
     return updated, total
+
+
+@task(invalidates='all')
+def backfill_column_task(resource_type: str, field: str) -> dict[str, Any]:
+    """Run a backfill on a worker.
+
+    A sweep walks a whole table, so it belongs on the queue rather than in the
+    request that asked for it; the task id is how the caller follows it.
+    """
+    updated, total = backfill_column(resource_type, field)
+    return format_results({'updated': updated, 'total': total})

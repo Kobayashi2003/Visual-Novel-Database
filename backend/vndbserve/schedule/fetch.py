@@ -1,8 +1,8 @@
 """Data-fetching schedules for the VNDB resource database.
 
-These jobs replace the random-sampling approach in schedule/random.py. The
-VNDB Kana API (https://api.vndb.org/kana) is a paginated list API whose ids
-are assigned sequentially, which makes two deterministic strategies possible:
+The VNDB Kana API (https://api.vndb.org/kana) is a paginated list API whose
+ids are assigned sequentially, which makes two deterministic strategies
+possible:
 
   fetch_new_schedule      - walk the newest ids (sorted by id, descending) and
                             ingest anything not held locally, stopping as soon
@@ -30,7 +30,6 @@ Efficiency notes
 """
 
 import os
-import json
 import time
 
 from flask import current_app
@@ -38,7 +37,9 @@ from flask import current_app
 from .common import crawl_task
 from vndbserve import db
 from vndbserve.database import MODEL_MAP, create
+from vndbserve.logger import logger
 from vndbserve.search import convert_remote_to_local
+from vndbserve.utils.state import load_state, save_state
 # Uncached search: a fetch job needs live results, not memoized ones.
 from vndbserve.search.remote.search import search as vndb_search
 
@@ -62,17 +63,10 @@ def _state_path():
     return os.path.join(current_app.config['DATA_FOLDER'], 'fetch_state.json')
 
 def _load_state():
-    try:
-        with open(_state_path(), encoding='utf-8') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    return load_state(_state_path())
 
 def _save_state(state):
-    path = _state_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(state, f, indent=2)
+    save_state(_state_path(), state)
 
 
 # ----------------------------------------
@@ -116,10 +110,10 @@ def fetch_new_schedule():
     for resource_type in FETCH_TYPES:
         try:
             summary[resource_type] = _fetch_new(resource_type)
-        except Exception as e:
-            print(f"[VNDB] fetch_new error for {resource_type}: {e}")
+        except Exception:
+            logger.exception(f"fetch_new failed for {resource_type}")
         time.sleep(TYPE_DELAY)
-    print(f"[VNDB] fetch_new created: {summary}")
+    logger.info(f"[VNDB] fetch_new created: {summary}")
 
 def _fetch_new(resource_type):
     created = 0
@@ -150,12 +144,14 @@ def fetch_backfill_schedule():
         try:
             created, cursor = _fetch_backfill(resource_type, cursor)
             summary[resource_type] = created
-        except Exception as e:
-            print(f"[VNDB] fetch_backfill error for {resource_type}: {e}")
+        except Exception:
+            logger.exception(f"fetch_backfill failed for {resource_type}")
         state.setdefault(resource_type, {})['backfill_page'] = cursor
+        # Saved per type rather than once at the end: a run that dies partway
+        # would otherwise discard the progress of the types it had finished.
+        _save_state(state)
         time.sleep(TYPE_DELAY)
-    _save_state(state)
-    print(f"[VNDB] fetch_backfill created: {summary}")
+    logger.info(f"[VNDB] fetch_backfill created: {summary}")
 
 def _fetch_backfill(resource_type, page):
     created = 0

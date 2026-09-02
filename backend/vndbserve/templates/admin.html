@@ -309,30 +309,30 @@
             return;
         }
 
-        startPolling();
+        startPolling(data.task_id);
     }
 
-    function startPolling() {
+    function startPolling(taskId) {
         if (pollTimer) clearInterval(pollTimer);
-        pollTimer = setInterval(pollStatus, 2000);
+        pollTimer = setInterval(() => pollStatus(taskId), 2000);
     }
 
-    async function pollStatus() {
-        const { ok, data } = await apiFetch('/backfill/status');
-        if (!ok) return;
+    // The backfill is a queued task now, so its outcome is read where every
+    // queued task's is: /tasks/<id>, which answers 202 while it is still going.
+    async function pollStatus(taskId) {
+        const res  = await fetch('/tasks/' + taskId);
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 202) return;
 
-        if (!data.running) {
-            clearInterval(pollTimer);
-            pollTimer = null;
-            document.getElementById('bf-btn').disabled = false;
+        clearInterval(pollTimer);
+        pollTimer = null;
+        document.getElementById('bf-btn').disabled = false;
 
-            if (data.last) {
-                if (data.last.error) {
-                    logLine('Error: ' + data.last.error, 'log-err');
-                } else {
-                    logLine(`Done — ${data.last.updated}/${data.last.total} updated.`, 'log-ok');
-                }
-            }
+        if (res.ok) {
+            const r = data.results ?? {};
+            logLine(`Done — ${r.updated}/${r.total} updated.`, 'log-ok');
+        } else {
+            logLine('Error: ' + (data.error ?? 'failed'), 'log-err');
         }
     }
 

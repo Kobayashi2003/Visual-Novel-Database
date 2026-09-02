@@ -28,7 +28,9 @@ from vndbserve.search import (
 # Uncached search: ingest must see fresh data, matching the fetch schedules.
 from vndbserve.search.remote.search import search as vndb_search
 from vndbserve.database import create
-from .common import task_with_memoize, format_results, NOT_FOUND
+from .common import task
+from .envelope import format_results, NOT_FOUND
+from vndbserve.logger import logger
 
 GRAPH_DEPTH_CAP = 8       # BFS layers walked outward from the root
 GRAPH_NODE_CAP = 200      # nodes collected before the graph is reported truncated
@@ -65,15 +67,19 @@ def _ingest_vns(ids: list[str]) -> None:
     failure leaves the graph with whatever is already local rather than failing
     the whole request. `create` overwrites any soft-deleted row with the freshly
     fetched data (cleanup + insert), so a deleted entry is refreshed, not just
-    un-deleted."""
+    un-deleted.
+
+    The rows created here are new to the mirror, so no cached reply can be
+    holding a different version of them; a listing made earlier simply will not
+    show them until it expires."""
     for start in range(0, len(ids), INGEST_BATCH):
         batch = ids[start:start + INGEST_BATCH]
         try:
             # A comma-joined id filter fetches the whole batch in one request.
             response = vndb_search('vn', {'id': ','.join(batch)}, 'large',
                                    page=1, limit=len(batch), count=False)
-        except Exception as exc:
-            print(f"[VNDB] relation-graph ingest failed for {batch}: {exc}")
+        except Exception:
+            logger.exception(f"Relation-graph ingest failed for {batch}")
             continue
         for item in response.get('results', []):
             data = convert_remote_to_local('vn', item)
@@ -131,7 +137,7 @@ def _add_edge(edges: dict[Any, dict[str, Any]], src: str, relation: dict[str, An
     elif official:
         edge['official'] = True
 
-@task_with_memoize(timeout=60 * 60)
+@task(cache_for=60 * 60)
 def get_relation_graph_task(vnid: str, depth: int = GRAPH_DEPTH_CAP, official_only: bool = False) -> dict[str, Any]:
     depth = min(max(1, depth), GRAPH_DEPTH_CAP)
 

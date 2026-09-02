@@ -8,7 +8,17 @@ since an unknown one is an upstream error rather than a local one.
 
 from vndbserve.errors import Failed, Rejected
 
+# ─── The field tree ───────────────────────────────────────────────────────────
+
 class FieldMeta(type):
+    """Attribute access on a field group, resolved to the name Kana wants.
+
+    `VNDBFields.VN.IMAGE.URL` reads as `"image.url"` and `VNDBFields.VN.ALL` as
+    every field the group holds, nested ones included. Written this way so the
+    field lists below stay a plain declaration — a name is spelled once, and
+    misspelling one is an `AttributeError` at the call site rather than a field
+    the API silently omits.
+    """
 
     def __new__(mcs, name, bases, attrs):
         cls = super().__new__(mcs, name, bases, attrs)
@@ -23,6 +33,13 @@ class FieldMeta(type):
         return cls._get_field(name)
 
 class FieldGroup(metaclass=FieldMeta):
+    """One level of the field tree.
+
+    `_fields` names what this level carries and `_prefix` is what Kana puts in
+    front of them; a nested group inherits the prefixes of the groups above it,
+    which is what `_outer` is for — the metaclass sets it when the class is
+    built.
+    """
 
     _outer = None
     _prefix = ""
@@ -36,9 +53,7 @@ class FieldGroup(metaclass=FieldMeta):
 
     @classmethod
     def _handle_field(cls, value):
-        if isinstance(value, str):
-            return f"{cls._get_outer_prefix()}{cls._prefix}{value}"
-        raise TypeError(f"Expected string, got {type(value).__name__}")
+        return f"{cls._get_outer_prefix()}{cls._prefix}{value}"
 
     @classmethod
     def _get_field(cls, name):
@@ -57,6 +72,8 @@ class FieldGroup(metaclass=FieldMeta):
         return all_fields
 
 class VNDBFields:
+    """Every field this service knows how to ask Kana for, by resource type."""
+
     class VN(FieldGroup):
         _prefix = ""
         _fields = ['ID', 'TITLE', 'ALTTITLE', 'ALIASES', 'OLANG', 'DEVSTATUS', 'RELEASED',
@@ -199,6 +216,8 @@ class VNDBFields:
                    'SEXUAL', 'GROUP_ID', 'GROUP_NAME', 'CHAR_COUNT']
 
 
+# ─── What each response size carries ──────────────────────────────────────────
+
 SMALL_FIELDS_VN: list[str] = [
     VNDBFields.VN.ID,
     VNDBFields.VN.TITLE,
@@ -307,6 +326,8 @@ SORTABLE_FIELDS = {
 }
 
 
+# ─── Dispatch ─────────────────────────────────────────────────────────────────
+
 def validate_sort(search_type: str, sort: str) -> str:
     if search_type not in SORTABLE_FIELDS:
         raise Failed('internal_error', f"Invalid search_type: {search_type}")
@@ -334,20 +355,3 @@ def get_remote_fields(search_type: str, response_size: str = 'small') -> list[st
         raise Failed('internal_error', f"Invalid search_type: {search_type}")
 
     return field_mapping[search_type][0] if response_size == 'small' else field_mapping[search_type][1]
-
-
-if __name__ == '__main__':
-    print("VN" + "="*50)
-    print(get_remote_fields('vn', 'large'))
-    print("Character" + "="*50)
-    print(get_remote_fields('character', 'large'))
-    print("TAG" + "="*50)
-    print(get_remote_fields('tag', 'large'))
-    print("Producer" + "="*50)
-    print(get_remote_fields('producer', 'large'))
-    print("staff" + "="*50)
-    print(get_remote_fields('staff', 'large'))
-    print("Trait" + "="*50)
-    print(get_remote_fields('trait', 'large'))
-    print("Release" + "="*50)
-    print(get_remote_fields('release', 'large'))

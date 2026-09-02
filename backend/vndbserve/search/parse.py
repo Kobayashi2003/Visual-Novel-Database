@@ -14,6 +14,13 @@ from enum import Enum
 import re
 
 
+# A nesting bound. The grammar is parsed by recursive descent, so depth costs
+# Python stack frames: past a few thousand the parse dies with a RecursionError,
+# which is not one of the three kinds and surfaces as a `500` for a value the
+# caller sent. Nothing legitimate nests anywhere near this.
+MAX_NESTING = 64
+
+
 class TokenizeError(Exception):
     def __init__(self, message: str, position: int):
         self.message = message
@@ -160,7 +167,16 @@ def tokenize(expression: str) -> list[Token]:
 
 def validate_logical_expression(expression: str) -> bool:
     """The module's entry point: True when `expression` is well formed. Swallows
-    both failure modes, so callers get a boolean rather than two exceptions."""
+    both failure modes, so callers get a boolean rather than two exceptions.
+
+    An expression that is blank, or nested deeper than `MAX_NESTING`, is not
+    well formed either — the second because the parse would otherwise recurse
+    until the interpreter stopped it.
+    """
+    if not expression or not expression.strip():
+        return False
+    if expression.count('(') > MAX_NESTING or expression.count(')') > MAX_NESTING:
+        return False
     try:
         normalized = normalize_expression(expression)
         tokens = tokenize(normalized)
@@ -170,26 +186,5 @@ def validate_logical_expression(expression: str) -> bool:
         return False
     except ParserError:
         return False
-
-
-if __name__ == "__main__":
-    test_cases = [
-        "Gang Rape + Unavoidable Rape", # Valid
-        "(Gang Rape , Unavoidable Rape) + Netorare", # Valid
-        "Gang Rape , Unavoidable Rape , Netorare", # Valid
-        "Netorare + ((Completely Avoidable Rape, Unavoidable Rape) + Gang Rape)", # Valid
-        "Gang Rape +", # Invalid
-        "Gang Rape ,", # Invalid
-        "(Gang Rape + Unavoidable Rape", # Invalid
-        "Gang Rape + b)", # Invalid
-        "Gang Rape + + b", # Invalid
-        "Gang Rape , , b", # Invalid
-    ]
-
-    for expr in test_cases:
-        print(f"\nExpression: {expr}")
-        try:
-            is_valid = validate_logical_expression(expr)
-            print(f"Valid: {is_valid}")
-        except Exception as e:
-            print(f"Error: {e}")
+    except RecursionError:
+        return False

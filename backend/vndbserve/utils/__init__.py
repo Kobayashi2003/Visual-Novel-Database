@@ -1,1 +1,1 @@
-from .ids import ID_PREFIX, TYPE_BY_PREFIX, formatId
+from .ids import ID_PREFIX, TYPE_BY_PREFIX, format_id

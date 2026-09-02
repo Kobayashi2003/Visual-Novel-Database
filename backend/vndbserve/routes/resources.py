@@ -11,8 +11,8 @@ so `/vns/17` and `/vns/v17` are the same request.
 """
 
 from abc import ABC, abstractmethod
-from flask import Blueprint, jsonify, abort, request
-from vndbserve.utils.ids import formatId
+from flask import Blueprint, abort, request
+from vndbserve.utils.ids import format_id
 from vndbserve.tasks.resources import (
     get_resource_task, get_resources_task,
     search_resource_task, search_resources_task,
@@ -85,13 +85,24 @@ class BaseResourceBlueprint(ABC):
         def normalize_id(endpoint, values):
             if not values or 'id' not in values:
                 return
-            try:
-                values['id'] = formatId(self.resource_type, values['id'])
-            except ValueError:
-                abort(400, description=f"Invalid id for {self.resource_type}: {values['id']}")
+            values['id'] = format_id(self.resource_type, values['id'])
 
     def get_sync_param(self):
-        return request.args.get('sync', 'true').lower() == 'true'
+        return parse_bool(request.args.get('sync'), True)
+
+    def get_search_params(self):
+        """The POST body as the parameter dict the search tasks take.
+
+        Refused unless it is an object: a body of `null`, a list or a bare
+        string carries no parameters to read, and popping from one would fail
+        as a defect of ours rather than as the bad request it is.
+        """
+        body = request.get_json(silent=True)
+        if body is None:
+            return {}
+        if not isinstance(body, dict):
+            abort(400, description="Expected a JSON object of search parameters.")
+        return body
 
     def get_resources(self):
         args = request.args.to_dict()
@@ -114,19 +125,19 @@ class BaseResourceBlueprint(ABC):
         return execute_task(get_resource_task, sync, self.resource_type, id, response_size)
 
     def search_resources(self):
-        search_params = request.json
+        search_params = self.get_search_params()
         response_size = search_params.pop('response_size', 'small')
-        page = search_params.pop('page', 1)
-        limit = search_params.pop('limit', 20)
+        page = parse_int(search_params.pop('page', None), 1, 1)
+        limit = parse_int(search_params.pop('limit', None), 20, 1, 100)
         sort = search_params.pop('sort', 'id')
-        reverse = search_params.pop('reverse', False)
-        count = search_params.pop('count', True)
+        reverse = parse_bool(search_params.pop('reverse', None), False)
+        count = parse_bool(search_params.pop('count', None), True)
         sync = self.get_sync_param()
 
         return execute_task(search_resources_task, sync, self.resource_type, search_params, response_size, page, limit, sort, reverse, count)
 
     def search_resource(self, id):
-        search_params = request.json
+        search_params = self.get_search_params()
         response_size = search_params.pop('response_size', 'small')
         sync = self.get_sync_param()
         return execute_task(search_resource_task, sync, self.resource_type, id, response_size)
@@ -140,20 +151,21 @@ class BaseResourceBlueprint(ABC):
         return execute_task(update_resource_task, sync, self.resource_type, id)
 
     def edit_resources(self):
-        update_datas = request.json
+        update_datas = request.get_json(silent=True)
         if not update_datas:
-            return jsonify(error="invalid_request", message="No update data provided."), 400
-
+            abort(400, description="No update data provided.")
         if not isinstance(update_datas, list):
-            return jsonify(error="invalid_request", message="Expected a list of updates."), 400
+            abort(400, description="Expected a list of updates.")
 
         sync = self.get_sync_param()
         return execute_task(edit_resources_task, sync, self.resource_type, update_datas)
 
     def edit_resource(self, id):
-        update_data = request.json
+        update_data = request.get_json(silent=True)
         if not update_data:
-            return jsonify(error="invalid_request", message="No update data provided."), 400
+            abort(400, description="No update data provided.")
+        if not isinstance(update_data, dict):
+            abort(400, description="Expected a JSON object of fields to change.")
 
         sync = self.get_sync_param()
         return execute_task(edit_resource_task, sync, self.resource_type, id, update_data)
@@ -169,8 +181,8 @@ class BaseResourceBlueprint(ABC):
     def get_related_resources(self, id, related_resource_type):
         args = request.args
         response_size = args.get('response_size', 'small')
-        page = args.get('page', default=1, type=int)
-        limit = args.get('limit', default=20, type=int)
+        page = parse_int(args.get('page'), 1, 1)
+        limit = parse_int(args.get('limit'), 20, 1, 100)
         sort = args.get('sort', default='id', type=str)
         reverse = parse_bool(args.get('reverse'), False)
         count = parse_bool(args.get('count'), True)
@@ -178,13 +190,13 @@ class BaseResourceBlueprint(ABC):
         return execute_task(get_related_resources_task, sync, self.resource_type, id, related_resource_type, response_size, page, limit, sort, reverse, count)
 
     def search_related_resources(self, id, related_resource_type):
-        search_params = request.json
+        search_params = self.get_search_params()
         response_size = search_params.pop('response_size', 'small')
-        page = search_params.pop('page', 1)
-        limit = search_params.pop('limit', 20)
+        page = parse_int(search_params.pop('page', None), 1, 1)
+        limit = parse_int(search_params.pop('limit', None), 20, 1, 100)
         sort = search_params.pop('sort', 'id')
-        reverse = search_params.pop('reverse', False)
-        count = search_params.pop('count', True)
+        reverse = parse_bool(search_params.pop('reverse', None), False)
+        count = parse_bool(search_params.pop('count', None), True)
         sync = self.get_sync_param()
         return execute_task(search_related_resources_task, sync, self.resource_type, id, related_resource_type, response_size, page, limit, sort, reverse, count)
 
@@ -198,8 +210,13 @@ class BaseResourceBlueprint(ABC):
 
     def get_inactive_resources(self):
         args = request.args
-        page = args.get('page', default=None, type=int)
-        limit = args.get('limit', default=None, type=int)
+        # The trash is unpaged unless asked for: it is small, and an operator
+        # looking through it wants the whole of it. Naming one half of a page
+        # is still asking for one, so the other half is filled in.
+        page = parse_int(args.get('page'), None, 1)
+        limit = parse_int(args.get('limit'), None, 1, 100)
+        if limit is not None and page is None:
+            page = 1
         sort = args.get('sort', default='id', type=str)
         reverse = parse_bool(args.get('reverse'), False)
         count = parse_bool(args.get('count'), True)

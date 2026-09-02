@@ -6,6 +6,7 @@ normalized to 'v17'.
 """
 
 import re
+from vndbserve.errors import Rejected
 
 ID_PREFIX = {
     'vn': 'v',
@@ -20,9 +21,9 @@ ID_PREFIX = {
 TYPE_BY_PREFIX = {prefix: type for type, prefix in ID_PREFIX.items()}
 
 
-def formatId(type: str, id: str) -> str:
+def format_id(type: str, id: str) -> str:
     prefix = ID_PREFIX[type]
     match = re.fullmatch(rf'(?:{prefix})?(\d+)', str(id).lower())
     if not match:
-        raise ValueError(f"Invalid ID: {id}")
+        raise Rejected('invalid_request', f"Invalid ID: {id}")
     return f"{prefix}{match.group(1)}"

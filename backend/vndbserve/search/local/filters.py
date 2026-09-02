@@ -25,9 +25,11 @@ from sqlalchemy import or_, and_, false, text, exists, select, func, Integer, Fl
 from sqlalchemy.sql.expression import BinaryExpression
 
 from vndbserve.database.models import VN, Tag, Producer, Staff, Character, Trait, Release
-from vndbserve.utils.ids import formatId
+from vndbserve.utils.ids import format_id
 from vndbserve.errors import Failed, Rejected
 from ..parse import validate_logical_expression
+
+# ─── Matching inside a JSONB or array column ──────────────────────────────────
 
 def generate_unique_param_name(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
@@ -58,6 +60,8 @@ def array_string_match(column: Any, value: str) -> BinaryExpression:
         .select_from(func.unnest(column).alias('array_item'))
         .where(text(f"array_item ILIKE :{param_value}"))
     ).params({param_value: f"%{value}%"})
+
+# ─── Tags and traits ──────────────────────────────────────────────────────────
 
 def resolve_tag_term(term: str, id_model: Any) -> list[str]:
     """Resolve a tag/trait search term to ids against the fully-mirrored local
@@ -122,6 +126,8 @@ def array_jsonb_tag_match(column: Any, value: str, max_spoiler: int,
 
     return conditions[0] if len(conditions) == 1 else or_(*conditions)
 
+# ─── Multi-value expressions ──────────────────────────────────────────────────
+
 def process_multi_value_expression(expression: str, value_processor: Callable[[str], BinaryExpression]) -> BinaryExpression:
     """Fold `value1,value2+(value3,value4)` into one condition — `,` is OR, `+`
     is AND, parentheses group. `value_processor` turns a single term into a
@@ -173,6 +179,8 @@ def process_multi_value_expression(expression: str, value_processor: Callable[[s
         evaluate(ops, vals)
 
     return vals[0] if vals else None
+
+# ─── Reading a comparison value ───────────────────────────────────────────────
 
 def create_comparison_filter(field: Any, value: str, value_parser: Callable[[str], Any]) -> BinaryExpression:
     pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
@@ -245,6 +253,8 @@ def parse_cup(value: str) -> str:
         return value.upper()
     raise Rejected('invalid_request', f"Invalid cup size: {value}")
 
+# ─── Comparisons on a typed column ────────────────────────────────────────────
+
 def create_released_comparison_filter(value: str, model) -> BinaryExpression:
     """`value` is "OPERATOR DATE", e.g. ">=2010-01". Release dates are stored as
     strings, so the comparison is lexicographic on the padded form."""
@@ -269,6 +279,22 @@ def create_released_comparison_filter(value: str, model) -> BinaryExpression:
 
     return operators[operator](model.released, normalized_date)
 
+def _resolution_axes():
+    """The stored resolution as two integers, whichever way it was written.
+
+    The column is text and holds three shapes: `[1280,720]` as the API sends it,
+    `{1280,720}` as a list handed to psycopg2 comes back, and `1280x720` as
+    `process_resolution` normalises it. Cutting the brackets off by position
+    works for the first two and mangles the third — `1920x1080` becomes
+    `920x108`, which the cast to integer refuses, taking the whole query with
+    it. Reading the two runs of digits works for all three, and yields NULL for
+    "non-standard", which then compares as unknown and drops the row.
+    """
+    width = func.substring(Release.resolution, r'(\d+)')
+    height = func.substring(Release.resolution, r'\d+\D+(\d+)')
+    return (func.cast(width, Integer), func.cast(height, Integer))
+
+
 def create_resolution_comparison_filter(value: str) -> BinaryExpression:
     """`value` is "OPERATORWIDTHxHEIGHT", e.g. ">=800x600"; the column holds
     "[WIDTH,HEIGHT]", so both sides are compared numerically per axis."""
@@ -282,9 +308,7 @@ def create_resolution_comparison_filter(value: str) -> BinaryExpression:
 
     width, height = parse_resolution(resolution_value)
 
-    resolution_without_brackets = func.substring(Release.resolution, 2, func.length(Release.resolution) - 2)
-    extracted_width = func.cast(func.split_part(resolution_without_brackets, ',', 1), Integer)
-    extracted_height = func.cast(func.split_part(resolution_without_brackets, ',', 2), Integer)
+    extracted_width, extracted_height = _resolution_axes()
 
     operators = {
         '>=': lambda w, h: or_(
@@ -326,10 +350,7 @@ def create_resolution_aspect_comparison_filter(value: str) -> BinaryExpression:
 
     width, height = parse_resolution(resolution_value)
 
-    # Extract numbers from the stored string
-    resolution_without_brackets = func.substring(Release.resolution, 2, func.length(Release.resolution) - 2)
-    extracted_width = func.cast(func.split_part(resolution_without_brackets, ',', 1), Integer)
-    extracted_height = func.cast(func.split_part(resolution_without_brackets, ',', 2), Integer)
+    extracted_width, extracted_height = _resolution_axes()
 
     given_aspect_ratio = width / height
     stored_aspect_ratio = func.cast(extracted_width, Float) / func.cast(extracted_height, Float)
@@ -474,20 +495,30 @@ def create_cup_comparison_filter(value: str) -> BinaryExpression:
     return operators[operator](Character.cup, cup_size)
 
 def create_gender_match_filter(value: str, spoil: bool = False) -> BinaryExpression:
-    index = 1 if spoil else 0
+    """The apparent gender, or the spoiler one behind it.
+
+    The column is a two-element `ARRAY`, and a PostgreSQL array starts at 1 —
+    index 0 is out of bounds and matches nothing at all.
+    """
+    index = 2 if spoil else 1
     return and_(
         Character.gender.isnot(None),
-        Character.gender[index].cast(String) == value
+        Character.gender[index] == value
     )
 
 
 def create_sex_match_filter(value: str, spoil: bool = False) -> BinaryExpression:
-    """`spoil` selects the spoiler sex over the apparent one."""
-    index = 1 if spoil else 0
+    """`spoil` selects the spoiler sex over the apparent one.
+
+    Indexed from 1, as PostgreSQL arrays are.
+    """
+    index = 2 if spoil else 1
     return and_(
         Character.sex.isnot(None),
-        Character.sex[index].cast(String) == value
+        Character.sex[index] == value
     )
+
+# ─── Filters this service adds to the API set ─────────────────────────────────
 
 def get_vn_additional_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
@@ -499,7 +530,8 @@ def get_vn_additional_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         filters.append(array_jsonb_exact_match(VN.characters, 'id', character_id))
 
     if staff_id := params.get('staff_id'):
-        filters.append(array_jsonb_exact_match(VN.staff, 'id', staff_id))
+        filters.append(or_(array_jsonb_exact_match(VN.staff, 'id', staff_id),
+                           array_jsonb_exact_match(VN.va, 'staff', {'id': staff_id})))
 
     if developer_id := params.get('developer_id'):
         filters.append(array_jsonb_exact_match(VN.developers, 'id', developer_id))
@@ -533,17 +565,6 @@ def get_vn_additional_filters(params: dict[str, Any]) -> list[BinaryExpression]:
                 lambda v, ms=max_spoiler, el=exclude_lies: array_jsonb_tag_match(VN.tags, v, ms, el),
             ))
 
-    if str(params.get('ero')).lower() == 'false' or str(params.get('ero')) == '0':
-        filters.append(and_(
-            ~exists(select(1).select_from(func.jsonb_array_elements(VN.tags).alias('tag')).where(text("tag->>'category' = 'ero'"))),
-            # screenshots carry 'sexual'/'violence' scores (there is no 'ero' key)
-            ~exists(select(1).select_from(func.jsonb_array_elements(VN.screenshots).alias('screenshot')).where(or_(
-                text("(screenshot->>'sexual')::float > 0.5"), text("(screenshot->>'violence')::float > 0.5")
-            ))),
-            or_(VN.image.is_(None), ~VN.image.has_key('sexual'), text("(vns.image->>'sexual')::float <= 0.5")),
-            or_(VN.image.is_(None), ~VN.image.has_key('violence'), text("(vns.image->>'violence')::float <= 0.5"))
-        ))
-
     return filters
 
 def get_release_additional_filters(params: dict[str, Any]) -> list[BinaryExpression]:
@@ -554,15 +575,6 @@ def get_release_additional_filters(params: dict[str, Any]) -> list[BinaryExpress
 
     if producer_id := params.get('producer_id'):
         filters.append(array_jsonb_exact_match(Release.producers, 'id', producer_id))
-
-    if str(params.get('ero')).lower() == 'false' or str(params.get('ero')) == '0':
-        filters.append(and_(
-            Release.has_ero == False,
-            ~exists(select(1).select_from(func.jsonb_array_elements(Release.images).alias('image')).where(or_(
-                text("(image->>'sexual')::float > 0.5"),
-                text("(image->>'violence')::float > 0.5")
-            )))
-        ))
 
     return filters
 
@@ -600,15 +612,6 @@ def get_character_additional_filters(params: dict[str, Any]) -> list[BinaryExpre
                 lambda v, ms=max_spoiler, el=exclude_lies: array_jsonb_tag_match(Character.traits, v, ms, el, id_model=Trait),
             ))
 
-    if str(params.get('ero')).lower() == 'false' or str(params.get('ero')) == '0':
-        filters.append(and_(
-            ~exists(select(1).select_from(func.jsonb_array_elements(Character.traits).alias('trait')).where(or_(
-                text("trait->>'name' ILIKE '%sexual%'"), text("trait->>'group_name' ILIKE '%sexual%'")
-            ))),
-            or_(Character.image.is_(None), ~Character.image.has_key('sexual'), text("(characters.image->>'sexual')::float <= 0.5")),
-            or_(Character.image.is_(None), ~Character.image.has_key('violence'), text("(characters.image->>'violence')::float <= 0.5")),
-        ))
-
     return filters
 
 def get_producer_additional_filters(params: dict[str, Any]) -> list[BinaryExpression]:
@@ -621,29 +624,20 @@ def get_staff_additional_filters(params: dict[str, Any]) -> list[BinaryExpressio
 
 def get_tag_additional_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
-
-    if str(params.get('ero')).lower() == 'false' or str(params.get('ero')) == '0':
-        filters.append(or_(Tag.category.is_(None), Tag.category != "ero"))
-
     return filters
 
 def get_trait_additional_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
-
-    if str(params.get('ero')).lower() == 'false' or str(params.get('ero')) == '0':
-        filters.append(and_(
-            or_(Trait.name.is_(None), ~Trait.name.ilike('%sexual%')),
-            or_(Trait.group_name.is_(None), ~Trait.group_name.ilike('%sexual%'))
-        ))
-
     return filters
 
+
+# ─── One builder per resource type ────────────────────────────────────────────
 
 def get_vn_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
 
     if ids := params.get('id'):
-        filters.append(process_multi_value_expression(ids, lambda id : VN.id == formatId('vn', id)))
+        filters.append(process_multi_value_expression(ids, lambda id : VN.id == format_id('vn', id)))
 
     if search := params.get('search'):
         def process_vn(vn_value):
@@ -681,10 +675,13 @@ def get_vn_filters(params: dict[str, Any]) -> list[BinaryExpression]:
 
     if 'has_description' in params:
         has_description = params['has_description']
+        # Empty counts as absent: the column is '' rather than NULL for most
+        # VNs without one, so testing NULL alone calls nearly every row
+        # described.
         if str(has_description).lower() == 'true' or str(has_description) == '1':
-            filters.append(VN.description.isnot(None))
+            filters.append(and_(VN.description.isnot(None), VN.description != ''))
         elif str(has_description).lower() == 'false' or str(has_description) == '0':
-            filters.append(VN.description.is_(None))
+            filters.append(or_(VN.description.is_(None), VN.description == ''))
         else:
             raise Rejected('invalid_request', f"Invalid value for has_description: {has_description}. Use 'true' or 'false'.")
 
@@ -725,7 +722,8 @@ def get_vn_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         def process_release(release_value):
             return or_(
                 array_jsonb_exact_match(VN.releases, 'id', release_value),
-                array_jsonb_match(VN.releases, 'title', release_value)
+                array_jsonb_match(VN.releases, 'title', release_value),
+                array_jsonb_match(VN.releases, 'alttitle', release_value)
             )
         filters.append(process_multi_value_expression(releases, process_release))
 
@@ -742,6 +740,10 @@ def get_vn_filters(params: dict[str, Any]) -> list[BinaryExpression]:
         def process_staff(staff_value):
             return or_(
                 array_jsonb_exact_match(VN.staff, 'id', staff_value),
+                # A voice credit is a staff credit upstream, where the filter
+                # matches the person however they were credited. Locally the two
+                # are separate columns, so both are asked.
+                array_jsonb_exact_match(VN.va, 'staff', {'id': staff_value}),
                 array_jsonb_match(VN.staff, 'name', staff_value),
                 array_jsonb_match(VN.staff, 'original', staff_value)
             )
@@ -764,7 +766,7 @@ def get_release_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
 
     if ids := params.get('id'):
-        filters.append(process_multi_value_expression(ids, lambda id : Release.id == formatId('release', id)))
+        filters.append(process_multi_value_expression(ids, lambda id : Release.id == format_id('release', id)))
 
     if search := params.get('search'):
         def process_release(release_value):
@@ -892,7 +894,7 @@ def get_character_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
 
     if ids := params.get('id'):
-        filters.append(process_multi_value_expression(ids, lambda id : Character.id == formatId('character', id)))
+        filters.append(process_multi_value_expression(ids, lambda id : Character.id == format_id('character', id)))
 
     if search := params.get('search'):
         def process_character(character_value):
@@ -980,7 +982,7 @@ def get_producer_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
 
     if ids := params.get('id'):
-        filters.append(process_multi_value_expression(ids, lambda id : Producer.id == formatId('producer', id)))
+        filters.append(process_multi_value_expression(ids, lambda id : Producer.id == format_id('producer', id)))
 
     if search := params.get('search'):
         def process_producer(producer_value):
@@ -1014,7 +1016,7 @@ def get_staff_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
 
     if ids := params.get('id'):
-        filters.append(process_multi_value_expression(ids, lambda id : Staff.id == formatId('staff', id)))
+        filters.append(process_multi_value_expression(ids, lambda id : Staff.id == format_id('staff', id)))
 
     if aids := params.get('aid'):
         filters.append(process_multi_value_expression(aids, lambda aid : Staff.aid == aid))
@@ -1065,7 +1067,7 @@ def get_tag_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
 
     if ids := params.get('id'):
-        filters.append(process_multi_value_expression(ids, lambda id : Tag.id == formatId('tag', id)))
+        filters.append(process_multi_value_expression(ids, lambda id : Tag.id == format_id('tag', id)))
 
     if search := params.get('search'):
         def process_tag(tag_value):
@@ -1087,7 +1089,7 @@ def get_trait_filters(params: dict[str, Any]) -> list[BinaryExpression]:
     filters = []
 
     if ids := params.get('id'):
-        filters.append(process_multi_value_expression(ids, lambda id : Trait.id == formatId('trait', id)))
+        filters.append(process_multi_value_expression(ids, lambda id : Trait.id == format_id('trait', id)))
 
     if traits := params.get('search'):
         def process_trait(trait_value):
@@ -1102,6 +1104,8 @@ def get_trait_filters(params: dict[str, Any]) -> list[BinaryExpression]:
 
     return filters
 
+
+# ─── Dispatch ─────────────────────────────────────────────────────────────────
 
 def get_local_filters(search_type: str, params: dict[str, Any]) -> list[BinaryExpression]:
 
