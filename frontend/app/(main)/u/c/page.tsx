@@ -35,7 +35,7 @@ import {
 } from "@/components/card/CardsGrid"
 import { CardsShelfRow } from "@/components/card/CardsShelfRow"
 import { PaginationButtons } from "@/components/button/PaginationButtons"
-import { Loading } from "@/components/status/StatusPanel"
+import { ErrorPanel, Loading } from "@/components/status/StatusPanel"
 import { EditModeBar } from "./_components/EditModeBar"
 
 
@@ -96,6 +96,9 @@ function CollectionContent() {
   const [totalCount, setTotalCount]               = useState(0)
   const [loadingCategories, setLoadingCategories] = useState(false)
   const [loadingItems, setLoadingItems]           = useState(false)
+  // What the last fetch failed with, so a failure is not shown as an empty
+  // collection — which reads as the collection having been lost.
+  const [itemsError, setItemsError]               = useState<string | null>(null)
   // Personal ratings for the current type, keyed by numeric mark id.
   const [ratings, setRatings]                     = useState<Record<number, number>>({})
 
@@ -271,6 +274,7 @@ function CollectionContent() {
     const ctrl = new AbortController()
     abortRef.current = ctrl
     setLoadingItems(true)
+    setItemsError(null)
 
     const run = async () => {
       try {
@@ -329,6 +333,7 @@ function CollectionContent() {
         if (e instanceof Error && e.name !== "AbortError") {
           setItems([])
           setTotalCount(0)
+          setItemsError(e.message)
         }
       } finally {
         if (!ctrl.signal.aborted) setLoadingItems(false)
@@ -763,6 +768,8 @@ function CollectionContent() {
                     )
                   ) : loadingItems ? (
                     <div className="flex justify-center py-24"><Loading /></div>
+                  ) : itemsError ? (
+                    <div className="flex justify-center py-24"><ErrorPanel message={itemsError} /></div>
                   ) : items.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted">
                       <Library className="w-12 h-12 opacity-40" />

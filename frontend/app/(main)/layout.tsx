@@ -48,17 +48,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     return () => { clearTimeout(t); if (img) img.onload = null }
   }, [wantsBackground])
 
-  // The Kobayashi showcase hides the global search header and supplies its own
-  // pin-to-top toolbar instead, so it starts flush against the viewport top.
   // The relation-graph page (`/{slug}/rg`) is full-bleed with its own frosted
   // header overlay, so the global header — and its top-edge peek — must stay out.
   // /login is standalone too — its header would only offer search that 401s.
   const hideHeader = pathname === "/login" || pathname.endsWith("/rg")
-  // The Kobayashi showcase paints its own audio-reactive background, so the
-  // global wallpaper is suppressed there (it would stack underneath and fight
-  // the bespoke layers).
-  // No route paints its own background at the moment; kept because the wash and
-  // the wallpaper are toggled together wherever one does.
+  // A route that paints its own full-page background suppresses the global
+  // wallpaper, which would otherwise stack underneath and fight it. No route
+  // does at the moment; the flag stays because the wash below and the wallpaper
+  // have to be turned off together wherever one is.
   const bespokeBg = false
 
   // Drives the auto-hide header (`trigger` === hidden): shown at the top of the
@@ -100,11 +97,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <PlayerProvider>
         <div
           style={{
-            backgroundImage: bespokeBg ? undefined : bgUrl,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            backgroundRepeat: "no-repeat",
-            backgroundAttachment: "fixed",
             // Height reserved for the fixed header so inner-scrolling pages can
             // size themselves to `calc(100vh - var(--header-h))`. Constant while
             // the header exists (it auto-hides by sliding over content, not by
@@ -112,10 +104,28 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             "--header-h": hideHeader ? "0px" : `${headerHeight}px`,
           } as React.CSSProperties}
         >
-          {/* On the bespoke-background route the translucent wash must go too:
-              an in-flow ancestor background paints OVER negative-z descendants,
-              so it would dim the showcase's fixed -z-10 layers. The body colour
-              is the base there instead. */}
+          {/* The wallpaper, as a layer of its own rather than this element's
+              `background-attachment: fixed`. Both paint the image against the
+              viewport; the difference is that a fixed attachment belongs to a
+              scrolling box and has to be re-rasterized against the moved
+              content on every frame, where a fixed-position layer is
+              rasterized once and composited from then on. It matters here
+              because a frosted header and blurred cards sit on top of it.
+
+              Behind everything, which is what the negative z-index is for: no
+              ancestor up to the root creates a stacking context, so this
+              paints below every in-flow background — including the wash. */}
+          {!bespokeBg && bgUrl && (
+            <div
+              aria-hidden
+              className="pointer-events-none fixed inset-0 -z-10 bg-cover bg-center bg-no-repeat"
+              style={{ backgroundImage: bgUrl }}
+            />
+          )}
+          {/* On a bespoke-background route the translucent wash goes too: it is
+              an in-flow background and so paints over any -z layer beneath it,
+              which would dim exactly what that route is painting. The body
+              colour is the base there instead. */}
           <div className={cn(
             "min-h-screen overflow-x-clip text-white flex flex-col",
             !bespokeBg && "bg-background/80",

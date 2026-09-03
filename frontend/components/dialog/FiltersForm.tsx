@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { ChevronDown } from "lucide-react"
 import {
   FilterState, TextField, NumberField, SelectField, DateField, EntityItem,
-  OPERATORS, searchFilters,
+  OPERATORS, availableFilters,
   isValidNumberInput, isValidDateInput, isValidDate,
 } from "@/lib/config"
 import { EntityFilter } from "@/components/input/EntityFilter"
@@ -233,7 +233,9 @@ interface FiltersFormProps {
 }
 
 export function FiltersForm({ type, filterState, source, setFilterState }: FiltersFormProps) {
-  const f = searchFilters[type] || {}
+  // Only what this source can apply: a field the backend would refuse is a
+  // control that can produce nothing but an error.
+  const f = availableFilters(type, source)
 
   const setText = (k: string, v: string) => setFilterState({ ...filterState, text: { ...filterState.text, [k]: v } })
   const setNumber = (k: string, v: string) => setFilterState({ ...filterState, number: { ...filterState.number, [k]: v } })
@@ -265,13 +267,13 @@ export function FiltersForm({ type, filterState, source, setFilterState }: Filte
     })
 
   // Buckets rendered inside a merged group are hidden from the plain entity list.
-  const groupedValues = new Set((f.entityGroups ?? []).flatMap(g => g.modes.map(m => m.value)))
+  const groupedValues = new Set(f.entityGroups.flatMap(g => g.modes.map(m => m.value)))
 
-  const hasAny = f.text?.length || f.number?.length || f.select?.length || f.date?.length || f.entity?.length
+  const hasAny = f.text.length || f.number.length || f.select.length || f.date.length || f.entity.length
 
   return (
     <div className="flex flex-col gap-4">
-      {f.entityGroups?.map(group => {
+      {f.entityGroups.map(group => {
         const keys = group.modes.map(m => m.value)
         const opt = entityOpt(keys[0])
         return (
@@ -305,7 +307,7 @@ export function FiltersForm({ type, filterState, source, setFilterState }: Filte
           </div>
         )
       })}
-      {f.entity?.filter(field => !groupedValues.has(field.value)).map(field => (
+      {f.entity.filter(field => !groupedValues.has(field.value)).map(field => (
         <div key={field.value} className="flex flex-col gap-1.5">
           <EntityFilter
             label={field.label}
@@ -334,12 +336,12 @@ export function FiltersForm({ type, filterState, source, setFilterState }: Filte
           )}
         </div>
       ))}
-      {f.text?.map(field => (
+      {f.text.map(field => (
         <TextFilter key={field.value} filter={field}
           value={filterState.text[field.value] ?? ""}
           onChange={setText} />
       ))}
-      {f.number?.map(field => field.comparable ? (
+      {f.number.map(field => field.comparable ? (
         <NumberFilterComparable key={field.value} filter={field}
           value={filterState.numberComparable[field.value] ?? { operator: "=", number: "" }}
           onChange={setNumberComparable} />
@@ -348,21 +350,21 @@ export function FiltersForm({ type, filterState, source, setFilterState }: Filte
           value={filterState.number[field.value] ?? ""}
           onChange={setNumber} />
       ))}
-      {f.select?.some(field => !field.comparable) && (
+      {f.select.some(field => !field.comparable) && (
         <div className="grid grid-cols-2 gap-3">
-          {f.select!.filter(field => !field.comparable).map(field => (
+          {f.select.filter(field => !field.comparable).map(field => (
             <SelectFilter key={field.value} filter={field}
               value={filterState.select[field.value] ?? field.default ?? "any"}
               onChange={setSelect} />
           ))}
         </div>
       )}
-      {f.select?.filter(field => field.comparable).map(field => (
+      {f.select.filter(field => field.comparable).map(field => (
         <SelectFilterComparable key={field.value} filter={field}
           value={filterState.selectComparable[field.value] ?? { operator: "=", value: "any" }}
           onChange={setSelectComparable} />
       ))}
-      {f.date?.map(field => field.comparable ? (
+      {f.date.map(field => field.comparable ? (
         <DateFilterComparable key={field.value} filter={field}
           value={filterState.dateComparable[field.value] ?? { operator: "=", date: "" }}
           onChange={setDateComparable} />

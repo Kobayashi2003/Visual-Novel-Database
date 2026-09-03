@@ -5,7 +5,7 @@ from flask_migrate import Migrate
 from .config import Config
 from .errors import http_error_code
 from .extensions import (
-    ExtSQLAchemy, ExtJWT, ExtAPScheduler, ExtLimiter, ExtRedis
+    ExtSQLAlchemy, ExtJWT, ExtAPScheduler, ExtLimiter, ExtRedis
 )
 
 import os
@@ -33,7 +33,7 @@ def create_app(config_class=Config, enable_scheduler=True):
         "max_age": 600
     }}, supports_credentials=True)
 
-    db = ExtSQLAchemy(app)
+    db = ExtSQLAlchemy(app)
     migrate = Migrate(app, db)
     jwt = ExtJWT(app)
     limiter = ExtLimiter(app)

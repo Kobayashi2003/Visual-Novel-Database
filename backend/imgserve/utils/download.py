@@ -18,6 +18,8 @@ import time
 import uuid
 from io import BytesIO
 from functools import wraps
+
+from imgserve.logger import logger
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .path import get_image_path
@@ -43,9 +45,10 @@ def _retry(max_retries, delay):
                     return func(*args, **kwargs)
                 except (httpx.RequestError, httpx.HTTPStatusError) as e:
                     if attempt == max_retries:
-                        print(f"Max retries reached. Last error: {e}")
+                        logger.warning(f"Giving up on {func.__name__} after "
+                                       f"{max_retries} attempts: {e}")
                         return None
-                    print(f"Attempt {attempt} failed. Retrying in {delay} seconds...")
+                    logger.info(f"Attempt {attempt} failed, retrying in {delay}s: {e}")
                     time.sleep(delay)
             return None
         return wrapper
@@ -59,7 +62,9 @@ def _fetch(type: str, id: int, *, timeout: float) -> Optional[BytesIO]:
     url = f"https://t.vndb.org/{type}/{dir}/{id}.jpg"
     response = httpx.get(url, timeout=timeout, follow_redirects=True)
     response.raise_for_status()
-    print(f"Downloaded image {url}")
+    # One line per image, so it is only worth having when something is being
+    # traced — at INFO it buried every other line the service wrote.
+    logger.debug(f"Downloaded image {url}")
     return BytesIO(response.content)
 
 
@@ -117,7 +122,7 @@ def download_image_to_disk(type: str, id: int, *, fast: bool = False) -> bool:
         _atomic_write(path, data.getvalue())
         return True
     except Exception as exc:
-        print(f"Error writing image {type}/{id}: {exc}")
+        logger.exception(f"Could not write image {type}/{id}: {exc}")
         return False
 
 
@@ -140,7 +145,7 @@ def download_and_save_image(url: str, folder: str) -> bool:
         _atomic_write(image_path, image_data.getvalue())
         return True
     except Exception as exc:
-        print(f"Error downloading image {url}: {exc}")
+        logger.exception(f"Could not download image {url}: {exc}")
         return False
 
 

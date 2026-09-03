@@ -78,7 +78,7 @@ function HomeContent() {
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return
         setStatus("error")
-        setStatusMsg("Failed to fetch VNs. Please try again.")
+        setStatusMsg(error instanceof Error ? error.message : String(error))
       }
     }
 

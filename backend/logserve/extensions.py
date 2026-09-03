@@ -48,7 +48,7 @@ class Extension(ABC):
         pass
 
 
-class ExtSQLAchemy(Extension):
+class ExtSQLAlchemy(Extension):
     def create(self, app):
         db = SQLAlchemy(app)
         wait_for_db(db, app)

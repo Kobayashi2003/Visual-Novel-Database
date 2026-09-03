@@ -150,14 +150,44 @@ class Supervisor:
     # ---------- launch / shutdown ------------------------------------------
 
     def _pump_logs(self, spec: ProcSpec, proc: subprocess.Popen) -> None:
-        # proc.stdout is text-mode with stderr merged in. Iterating yields
-        # lines as the child flushes them; the loop exits when the child
-        # closes its stdout (i.e. it exited).
+        """Forward the child's output, and outlive anything one line can do.
+
+        This thread is the pipe's only reader. If it stops, the pipe fills and
+        the child blocks on its next write — a service that hangs with nothing
+        reported anywhere, which is far worse than a lost log line. So no line
+        is allowed to end the loop: the stream is decoded permissively (see
+        `_start_one`) and a console that cannot render a character loses the
+        character rather than the pump.
+
+        The loop ends where it should: when the child closes its stdout.
+        """
         assert proc.stdout is not None
-        for line in proc.stdout:
-            line = line.rstrip("\n")
+        try:
+            # proc.stdout is text-mode with stderr merged in. Iterating yields
+            # lines as the child flushes them.
+            for line in proc.stdout:
+                self._emit(spec, line.rstrip("\n"))
+        except Exception as e:
+            # Reaching here means the pipe is about to go unread, which is the
+            # one thing this thread exists to prevent. Say so.
+            self.logger.error(f"{spec.prefix} log pump stopped: {e!r}")
+            print(self._err(f"{spec.prefix} log pump stopped: {e!r}"), file=sys.stderr)
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+
+    def _emit(self, spec: ProcSpec, line: str) -> None:
+        """One line to the log file and to the console, neither able to raise."""
+        try:
             self.logger.info(f"{spec.prefix} {line}")
+        except Exception:
+            pass
+        try:
             print(f"{self._prefix(spec)} {line}")
+        except Exception:
+            pass
 
     def _start_one(self, spec: ProcSpec) -> None:
         marker = f"{_BOLD}starting{_RESET}" if self._color else "starting"
@@ -171,6 +201,14 @@ class Supervisor:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                # Spelled out rather than left to the locale. Node and Caddy
+                # write UTF-8 whatever the console's code page is, and a
+                # locale-decoded pipe raises on their first byte that page
+                # cannot express — which used to take the pump thread with it,
+                # and the child's next write with that. `replace` extends the
+                # same protection to a child that writes something else again.
+                encoding="utf-8",
+                errors="replace",
             )
         except (FileNotFoundError, OSError) as e:
             # FileNotFoundError is the common case (binary vanished between

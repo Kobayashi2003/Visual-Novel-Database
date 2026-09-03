@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from flask import current_app
 from userserve import scheduler
+from userserve.logger import logger
 
 def test_task(func):
     @wraps(func)
@@ -69,6 +70,6 @@ def backup_database_schedule():
 
     try:
         subprocess.run(command, env=env, check=True, capture_output=True, text=True)
-        print(f"[UserServe] Database backup created successfully")
-    except Exception as e:
-        print(f"[UserServe] Error creating database backup: {str(e)}")
+        logger.info("[USERSERVE] Database backup created successfully")
+    except Exception:
+        logger.exception("Database backup failed")

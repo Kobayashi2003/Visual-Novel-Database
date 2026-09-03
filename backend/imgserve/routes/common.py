@@ -47,6 +47,26 @@ _STATUS_MESSAGE = {
     500: "Internal error",
 }
 
+_TRUE = {'true', '1', 'yes', 'on'}
+_FALSE = {'false', '0', 'no', 'off'}
+
+def parse_bool(raw, default: bool) -> bool:
+    """A query parameter as a boolean, or the default when it was not sent.
+
+    A value that is neither is refused rather than replaced by the default:
+    `?sync=perhaps` would otherwise answer with a task id where the caller asked
+    for a result, and nothing in the reply would say so.
+    """
+    if raw is None:
+        return default
+    value = str(raw).strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    abort(400, description=f"Expected true or false, got: {raw!r}")
+
+
 def task_response(result):
     """Turn a task outcome into a response. On failure the body becomes the
     standard `{error, message}`; on success `status` is stripped."""

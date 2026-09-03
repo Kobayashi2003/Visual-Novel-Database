@@ -9,7 +9,7 @@ import { useSearchContext } from "@/context/SearchContext"
 import { SearchBar } from "@/components/input/SearchBar"
 import { IconButton } from "@/components/button/IconButton"
 import { SearchPanel } from "@/components/panel/SearchPanel"
-import { FilterState, buildInitialState } from "@/lib/config"
+import { FilterState, buildInitialState, getDefaultSortOption } from "@/lib/config"
 
 interface SearchHeaderProps {
   hidden?: boolean
@@ -53,8 +53,13 @@ export function SearchHeader({ hidden = false, className }: SearchHeaderProps) {
     if (from === "local") params.set("from", "local")
     if (from === "remote") params.set("from", "remote")
     if (searchQuery) params.set("search", searchQuery)
-    if (sort) params.set("sort", sort)
-    params.set("reverse", order === "desc" ? "True" : "False")
+    // `searchrank` orders by relevance to the search term. With no term there
+    // is nothing to be relevant to, and the API refuses the query rather than
+    // ignoring the ordering — so fall back to the default for this pair.
+    if (sort) params.set("sort", sort === "searchrank" && !searchQuery
+      ? getDefaultSortOption(type, from)
+      : sort)
+    params.set("reverse", String(order === "desc"))
     router.push(`/${type}?${params.toString()}`)
   }
 

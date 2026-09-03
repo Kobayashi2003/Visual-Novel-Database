@@ -1,3 +1,16 @@
+"""The tables: the mirrored resources, and the `logs` table logserve reads.
+
+Relation-like data is held in JSONB columns in the API's own shape rather than
+in relationships, which is why a row converts to JSON one column at a time (see
+common.py) and why the relation columns carry GIN indexes rather than joins.
+
+Every mirrored row carries four stamps that are easy to confuse: `created_at`
+and `updated_at` are this row's own history, `crawled_at` is when the data in it
+was fetched from the API, and `edited_at` marks a row a person changed by hand —
+which is what freezes it against automatic sync. `deleted_at` is the soft
+delete. Which write sets which is in operations.py, at `source`.
+"""
+
 from typing import Union
 
 from sqlalchemy import Column, String, Integer, Float, Boolean, Text, DateTime
@@ -6,8 +19,6 @@ from sqlalchemy.sql import func
 
 from vndbserve import db
 
-# The mirrored tables. Relation-like data is held as JSONB in the API's own
-# shape, and the four timestamps each mean a different thing — see README.md.
 
 class VN(db.Model):
     __tablename__ = 'vns'
@@ -208,7 +219,10 @@ class LogEntry(db.Model):
     __tablename__ = 'logs'
 
     id = Column(String, primary_key=True)
-    timestamp = Column(DateTime(timezone=True), default=func.now())
+    # Indexed: every read of this table is by time — logserve lists newest-first
+    # and filters on a range, and the retention job selects on it (see
+    # schedule/logs.py).
+    timestamp = Column(DateTime(timezone=True), default=func.now(), index=True)
     level = Column(String)
     message = Column(Text)
     details = Column(JSONB)

@@ -4,7 +4,7 @@ from werkzeug.exceptions import HTTPException
 from flask_migrate import Migrate
 from .config import Config
 from .errors import http_error_code
-from .extensions import ExtSQLAchemy, ExtAPScheduler
+from .extensions import ExtSQLAlchemy, ExtAPScheduler
 
 
 def create_app(config_class=Config, enable_scheduler=True):
@@ -24,7 +24,7 @@ def create_app(config_class=Config, enable_scheduler=True):
         "max_age": 600
     }})
 
-    db = ExtSQLAchemy(app)
+    db = ExtSQLAlchemy(app)
 
     # Two simple tables, so they are created on boot rather than through
     # migrations — the service is usable immediately after a fresh start. The

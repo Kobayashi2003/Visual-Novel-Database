@@ -12,7 +12,8 @@ def setup_logger(name, log_file, level=logging.INFO):
 
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
-    file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024 * 5, backupCount=5)  # 5 MB x 5
+    file_handler = RotatingFileHandler(log_file, maxBytes=1024 * 1024 * 5, backupCount=5,
+                                       encoding='utf-8')  # 5 MB x 5
     file_handler.setLevel(level)
 
     console_handler = logging.StreamHandler()

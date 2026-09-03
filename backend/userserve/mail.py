@@ -59,7 +59,6 @@ def send_email(to: str, subject: str, body: str) -> bool:
     # Dev fallback: nothing configured → log the message instead of sending.
     if not accounts or current_app.config.get('MAIL_SUPPRESS_SEND'):
         current_app.logger.info(f"[mail suppressed] to={to} subject={subject!r}\n{body}")
-        print(f"[UserServe] [mail suppressed] to={to} subject={subject!r}\n{body}")
         return True
 
     for provider, username, password in accounts:

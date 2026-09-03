@@ -62,7 +62,13 @@ def _setup_logging(mode: str) -> None:
     below log through this same logger, so their missing-binary warnings land
     in the file too."""
     logger.setLevel(logging.INFO)
-    file_handler = RotatingFileHandler(os.path.join(_LOG_DIR, f"launch-{mode}.log"), maxBytes=1024 * 1024 * 5)
+    file_handler = RotatingFileHandler(
+        os.path.join(_LOG_DIR, f"launch-{mode}.log"),
+        # Without a backupCount, maxBytes rotates nothing: the handler
+        # reopens the same file and it grows without a bound. Same 5 MB x 5
+        # as every service log (see each app's logger.py).
+        maxBytes=1024 * 1024 * 5, backupCount=5, encoding="utf-8",
+    )
     file_handler.setLevel(logging.INFO)
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.ERROR)

@@ -41,6 +41,15 @@ class Config:
     # interpreted in. Set to the user base's timezone so "off-peak" is real.
     SCHEDULER_TIMEZONE = os.environ.get('SCHEDULER_TIMEZONE', 'Asia/Shanghai')
 
+    # Log retention
+    # How long the `logs` table keeps a row, by what the row records. Routine
+    # entries are one per search and are read within days if at all; the ones
+    # that record a failure are worth having when a problem surfaces later, and
+    # there are three orders of magnitude fewer of them. Zero or less keeps
+    # everything — see schedule/logs.py.
+    LOG_RETENTION_DAYS = int(os.environ.get('LOG_RETENTION_DAYS', 30))
+    LOG_FAILURE_RETENTION_DAYS = int(os.environ.get('LOG_FAILURE_RETENTION_DAYS', 365))
+
     # Data folder configuration
     DATA_FOLDER = os.environ['DATA_FOLDER']
     TEMP_FOLDER = os.path.join(DATA_FOLDER, 'tmp')

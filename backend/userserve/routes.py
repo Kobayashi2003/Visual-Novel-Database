@@ -8,7 +8,7 @@ every gated request for every other service, and the only place the caller's id
 and admin flag are told to anything downstream.
 """
 
-from flask import Blueprint, jsonify, make_response, request, current_app
+from flask import Blueprint, abort, jsonify, make_response, request, current_app
 from flask_jwt_extended import (
     jwt_required, get_jwt_identity, get_jwt,
     create_access_token, create_refresh_token, decode_token,
@@ -36,6 +36,27 @@ from .security import generate_reset_token, verify_reset_token, password_fingerp
 from .mail import send_password_reset_email, send_verification_code_email
 
 api_bp = Blueprint('api', __name__, url_prefix='/')
+
+
+_TRUE = {'true', '1', 'yes', 'on'}
+_FALSE = {'false', '0', 'no', 'off'}
+
+def parse_bool(raw, default: bool) -> bool:
+    """A query parameter as a boolean, or the default when it was not sent.
+
+    A value that is neither is refused rather than replaced by the default:
+    `?sync=perhaps` would otherwise answer with a task id where the caller asked
+    for a result, and nothing in the reply would say so.
+    """
+    if raw is None:
+        return default
+    value = str(raw).strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    abort(400, description=f"Expected true or false, got: {raw!r}")
+
 
 # 400/404/500 are left to the app-level handler in __init__.py, which puts every
 # HTTPException on the shared {error, message} shape. Only the two cases needing
@@ -448,8 +469,8 @@ def get_marks_for_user_route(type):
     if sort not in ('id', 'marked_at'):
         return jsonify(error="invalid_request", message="sort must be one of: id, marked_at."), 400
 
-    reverse = args.get('reverse', 'true').lower() == 'true'
-    count = args.get('count', 'true').lower() == 'true'
+    reverse = parse_bool(args.get('reverse'), True)
+    count = parse_bool(args.get('count'), True)
     result = get_marks_for_user(
         user_id, type, category_id,
         page=page, limit=limit, sort=sort, reverse=reverse, count=count,

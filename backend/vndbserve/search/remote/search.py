@@ -31,6 +31,18 @@ RATE_LIMIT_MAX_RETRIES = 5
 RATE_LIMIT_BASE_DELAY = 1.0   # seconds; doubles each retry
 RATE_LIMIT_MAX_DELAY = 60.0   # seconds; backoff ceiling
 
+# A connection that never opened is worth one more attempt: nothing was sent,
+# so sending it again cannot repeat any work. httpx offers this as
+# `HTTPTransport(retries=...)`, which the client below cannot use — see there.
+CONNECT_RETRIES = 1
+
+# Two budgets, because they measure different things. Opening a socket either
+# happens quickly or is not going to happen; reading a full page of results is
+# allowed to take a while. One number for both would make an unreachable API
+# cost a caller the read budget before the fallback even starts.
+CONNECT_TIMEOUT = 10.0
+READ_TIMEOUT = 30.0
+
 # How far a walk over every page will go. Termination otherwise rests on the
 # source reporting `more` correctly, and a source that always says there is
 # more is a worker looping until it runs out of memory.
@@ -87,13 +99,33 @@ class VNDBAPIWrapper:
     """
 
     def __init__(self, api_token: str | None = None):
+        # No `transport=` here, deliberately. Passing one is also what turns off
+        # httpx's reading of the proxy environment
+        # (`allow_env_proxies = trust_env and transport is None`), and on a host
+        # that reaches the API through a proxy the client would then aim every
+        # request straight at a network it cannot route — an unreachable API
+        # with a working one configured. The retry it would have bought is made
+        # in `_send` instead.
         self.client = httpx.Client(
-            timeout=30.0,
-            transport=httpx.HTTPTransport(retries=1)
+            timeout=httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT),
         )
         self.client.headers.update({"Content-Type": "application/json"})
         if api_token:
             self.client.headers.update({"Authorization": f"Token {api_token}"})
+
+    def _send(self, method: str, url: str, **kwargs) -> httpx.Response:
+        """One request, retried only when the connection never opened.
+
+        Nothing has been sent at that point, so a second attempt cannot repeat
+        any work — which is why no other failure is retried here: a read that
+        timed out may well have been carried out upstream already.
+        """
+        for attempt in range(CONNECT_RETRIES + 1):
+            try:
+                return self.client.request(method, url, **kwargs)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                if attempt == CONNECT_RETRIES:
+                    raise
 
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Send a request to the Kana API, backing off exponentially when it
@@ -105,7 +137,7 @@ class VNDBAPIWrapper:
         delay = RATE_LIMIT_BASE_DELAY
         for attempt in range(RATE_LIMIT_MAX_RETRIES):
             try:
-                response = self.client.request(method, url, **kwargs)
+                response = self._send(method, url, **kwargs)
             except httpx.HTTPError as exc:
                 raise Unavailable('upstream_unreachable',
                                   "The VNDB API could not be reached.",

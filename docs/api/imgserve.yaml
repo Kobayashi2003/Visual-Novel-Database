@@ -244,14 +244,14 @@ paths:
     post:
       tags: [maintenance]
       summary: Revoke a queued task
+      description: |
+        Accepted for any id. The result backend only holds a task once it has
+        finished, so an id still queued cannot be told from one that never
+        existed — and a task that has already started runs to the end either
+        way, because the workers use a thread pool.
       responses:
         "200":
           description: Revoked.
-        "404":
-          description: No task with that id.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
 
 components:
   parameters:

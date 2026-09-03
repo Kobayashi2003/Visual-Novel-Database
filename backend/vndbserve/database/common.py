@@ -1,7 +1,8 @@
 """A row as a plain dict, for a JSON response.
 
-Only the column values need converting; there are no relationships to walk, by
-design — see README.md.
+Only the column values need converting. There are no relationships to walk by
+design: what a row relates to is held in a JSONB column in the API's own shape,
+so it converts as a column value like any other.
 """
 
 import json

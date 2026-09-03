@@ -15,7 +15,7 @@ from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
 from .config import Config
-from .extensions import ExtSQLAchemy
+from .extensions import ExtSQLAlchemy
 
 
 def create_app(config_class=Config, enable_scheduler=True):
@@ -41,7 +41,7 @@ def create_app(config_class=Config, enable_scheduler=True):
     # ----------------------------------------
     # Database Initialization
     # ----------------------------------------
-    db = ExtSQLAchemy(app)
+    db = ExtSQLAlchemy(app)
 
     # Register the model on the metadata. No create_all(): the `logs` table is
     # owned by vndbserve's migrations; logserve only reads/prunes it.

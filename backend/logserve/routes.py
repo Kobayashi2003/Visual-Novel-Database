@@ -4,13 +4,50 @@ Replay re-executes a logged query against the database, which is why this servic
 has no route at the edge and is reachable on loopback only.
 """
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request
 
 from . import operations
 from .operations import ValidationError
 from .replay import replay_log, ReplayError
 
 api_bp = Blueprint('api', __name__, url_prefix='/')
+
+
+_TRUE = {'true', '1', 'yes', 'on'}
+_FALSE = {'false', '0', 'no', 'off'}
+
+def parse_bool(raw, default: bool) -> bool:
+    """A query parameter as a boolean, or the default when it was not sent.
+
+    A value that is neither is refused rather than replaced by the default:
+    `?sync=perhaps` would otherwise answer with a task id where the caller asked
+    for a result, and nothing in the reply would say so.
+    """
+    if raw is None:
+        return default
+    value = str(raw).strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    abort(400, description=f"Expected true or false, got: {raw!r}")
+
+
+def parse_int(raw, default: int, minimum: int | None = None, maximum: int | None = None) -> int:
+    """A query parameter as an integer, clamped, or the default when it was not
+    sent. A value that is not one is refused, rather than raised out of the
+    route as a 500."""
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        abort(400, description=f"Expected an integer, got: {raw!r}")
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
 
 
 @api_bp.errorhandler(400)
@@ -58,7 +95,7 @@ def logs_list():
     Query params: level, source ('local'|'remote'), resource_type, search
     (message substring), start / end (ISO-8601 timestamp bounds), page, limit,
     sort (timestamp|level|message), reverse (bool)."""
-    reverse = request.args.get('reverse', 'true').lower() in ('true', '1', 'yes')
+    reverse = parse_bool(request.args.get('reverse'), True)
     return jsonify(operations.list_logs(
         level=request.args.get('level'),
         source=request.args.get('source'),
@@ -66,8 +103,8 @@ def logs_list():
         search=request.args.get('search'),
         start=request.args.get('start'),
         end=request.args.get('end'),
-        page=int(request.args.get('page', 1)),
-        limit=int(request.args.get('limit', 50)),
+        page=parse_int(request.args.get('page'), 1, 1),
+        limit=parse_int(request.args.get('limit'), 50, 1, 500),
         sort=request.args.get('sort', 'timestamp'),
         reverse=reverse,
     ))

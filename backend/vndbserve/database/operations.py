@@ -3,8 +3,7 @@
 The only layer that touches the session. Each operation exists twice — a private
 `_name` that does the work and a public `name` that wraps it — because the
 private ones call each other and the wrapper must run once, not once per nesting
-level. See README.md for what the two wrappers guarantee, and why a read must
-not commit.
+level. What each wrapper guarantees is stated where it is defined.
 """
 
 from typing import Any
@@ -294,19 +293,6 @@ def deleted_among(resource_type: str, ids: list[str]) -> set[str]:
     model = MODEL_MAP[resource_type]
     return {row.id for row in db.session.query(model.id)
             .filter(model.id.in_(ids), model.deleted_at.is_not(None))}
-
-
-@translates_db_errors
-def all_ids(resource_type: str) -> set[str]:
-    """Every live id, without the rows they belong to.
-
-    The dump ingest compares what a snapshot holds against what is stored, and
-    needs only the ids to do it. Reading the rows for that loads every JSONB
-    relation column with them — for `vn` about 1.9 GB where the ids are 8 MB.
-    """
-    model = MODEL_MAP[resource_type]
-    return {row.id for row in
-            db.session.query(model.id).filter(model.deleted_at.is_(None))}
 
 
 @translates_db_errors

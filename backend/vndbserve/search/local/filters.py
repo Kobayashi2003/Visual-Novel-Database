@@ -182,14 +182,27 @@ def process_multi_value_expression(expression: str, value_processor: Callable[[s
 
 # ─── Reading a comparison value ───────────────────────────────────────────────
 
-def create_comparison_filter(field: Any, value: str, value_parser: Callable[[str], Any]) -> BinaryExpression:
-    pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
-    match = re.match(pattern, value.strip())
-    if not match:
-        raise Rejected('invalid_request', f"Invalid comparison format: {value}")
+# What every comparable filter arrives as: an optional operator, then the value
+# it compares against. The space between the two is optional as well — the
+# search panel writes one and the remote backend ignores it, so a query that
+# means the same thing must not be refused here for spelling it that way.
+_COMPARISON = re.compile(r'^(>=|<=|>|<|=|!=)?\s*(.+?)\s*$')
 
-    operator, actual_value = match.groups()
-    operator = operator or '='
+
+def read_comparison(value: str, what: str, example: str) -> tuple[str, str]:
+    """An "OPERATOR VALUE" filter as its two halves, the operator defaulting to
+    `=`. `what` and `example` are what the refusal says when it is neither."""
+    match = _COMPARISON.match(value.strip())
+    if not match:
+        raise Rejected('invalid_request',
+                       f"Invalid {what} comparison format: {value}. "
+                       f"Use format like '{example}'.")
+    operator, compared_to = match.groups()
+    return operator or '=', compared_to
+
+
+def create_comparison_filter(field: Any, value: str, value_parser: Callable[[str], Any]) -> BinaryExpression:
+    operator, actual_value = read_comparison(value, 'value', '>=10')
 
     operators = {
         '>=': lambda f, v: f >= v,
@@ -258,13 +271,7 @@ def parse_cup(value: str) -> str:
 def create_released_comparison_filter(value: str, model) -> BinaryExpression:
     """`value` is "OPERATOR DATE", e.g. ">=2010-01". Release dates are stored as
     strings, so the comparison is lexicographic on the padded form."""
-    pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
-    match = re.match(pattern, value.strip())
-    if not match:
-        raise Rejected('invalid_request', f"Invalid release date comparison format: {value}. Use format like '>=2022-01-01'.")
-
-    operator, date_value = match.groups()
-    operator = operator or '='
+    operator, date_value = read_comparison(value, 'release date', '>=2022-01-01')
 
     normalized_date = parse_released(date_value)
 
@@ -298,13 +305,7 @@ def _resolution_axes():
 def create_resolution_comparison_filter(value: str) -> BinaryExpression:
     """`value` is "OPERATORWIDTHxHEIGHT", e.g. ">=800x600"; the column holds
     "[WIDTH,HEIGHT]", so both sides are compared numerically per axis."""
-    pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
-    match = re.match(pattern, value.strip())
-    if not match:
-        raise Rejected('invalid_request', f"Invalid resolution comparison format: {value}. Use format like '>=640x480'.")
-
-    operator, resolution_value = match.groups()
-    operator = operator or '='
+    operator, resolution_value = read_comparison(value, 'resolution', '>=640x480')
 
     width, height = parse_resolution(resolution_value)
 
@@ -340,13 +341,7 @@ def create_resolution_comparison_filter(value: str) -> BinaryExpression:
 def create_resolution_aspect_comparison_filter(value: str) -> BinaryExpression:
     """As create_resolution_comparison_filter, but the comparison also has to
     hold for the aspect ratio, not only the pixel counts."""
-    pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
-    match = re.match(pattern, value.strip())
-    if not match:
-        raise Rejected('invalid_request', f"Invalid resolution comparison format: {value}. Use format like '>=640x480'.")
-
-    operator, resolution_value = match.groups()
-    operator = operator or '='
+    operator, resolution_value = read_comparison(value, 'resolution', '>=640x480')
 
     width, height = parse_resolution(resolution_value)
 
@@ -402,13 +397,7 @@ def create_resolution_aspect_comparison_filter(value: str) -> BinaryExpression:
 def create_birthday_comparison_filter(value: str) -> BinaryExpression:
     """`value` is "OPERATOR MM-DD"; the column holds "[MM,DD]"."""
 
-    pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
-    match = re.match(pattern, value.strip())
-    if not match:
-        raise Rejected('invalid_request', f"Invalid birthday comparison format: {value}. Use format like '>=12-25'.")
-
-    operator, birthday_value = match.groups()
-    operator = operator or '='
+    operator, birthday_value = read_comparison(value, 'birthday', '>=12-25')
 
     month, day = parse_birthday(birthday_value)
 
@@ -445,13 +434,7 @@ def create_birthday_comparison_filter(value: str) -> BinaryExpression:
 def create_cup_comparison_filter(value: str) -> BinaryExpression:
     """`value` is "OPERATOR SIZE", e.g. ">=C". Cup sizes are single letters, so
     they are ranked by an explicit order rather than compared as strings."""
-    pattern = r'^(>=|<=|>|<|=|!=)?(.+)$'
-    match = re.match(pattern, value.strip())
-    if not match:
-        raise Rejected('invalid_request', f"Invalid cup size comparison format: {value}. Use format like '>=B'.")
-
-    operator, cup_value = match.groups()
-    operator = operator or '='
+    operator, cup_value = read_comparison(value, 'cup size', '>=B')
 
     cup_size = parse_cup(cup_value)
 

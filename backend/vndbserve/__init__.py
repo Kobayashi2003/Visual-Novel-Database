@@ -32,6 +32,11 @@ def create_app(config_class=Config, enable_scheduler=True):
     migrate = Migrate(app, db)
     cache = ExtCache(app)
     celery = ExtCelery(app)
+    # Importing a task module is what registers its tasks, so the set this
+    # process knows is declared (in tasks/__init__) rather than left to which
+    # blueprints happen to import what. A worker that skipped this answers
+    # `unregistered task` to anything no route of its own calls.
+    from . import tasks  # noqa: F401
 
     if enable_scheduler:
         scheduler = ExtAPScheduler(app)
@@ -39,7 +44,7 @@ def create_app(config_class=Config, enable_scheduler=True):
         from .schedule.simple import simple_schedule
         from .schedule.backup import backup_database_schedule
         from .schedule.fetch import fetch_new_schedule, fetch_backfill_schedule
-        from .schedule.dump import dump_ingest_schedule
+        from .schedule.logs import prune_logs_schedule
     else:
         scheduler = None
 

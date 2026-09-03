@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import JSONB as PgJSONB, ARRAY as PgARRAY
 from vndbserve.database import update as db_update, get as db_get
 from vndbserve.errors import Rejected
 from vndbserve.database.models import MODEL_MAP
+from vndbserve.logger import logger
 from .common import task
 from .envelope import format_results
 from vndbserve.search.local.search import search as local_search
@@ -35,7 +36,7 @@ from vndbserve.search.remote.filters import VNDBFilters, build_filters
 _DEFAULT_BATCH_SIZE     = 100
 _DEFAULT_DELAY          = 2.0            # seconds between batch requests
 _DEFAULT_OVERWRITE_NULL = False          # whether to write a null value obtained from a successful fetch
-TEST                    = False          # when True, log DB writes instead of executing them
+_TEST                   = False          # TEST: when True, log the writes instead of making them
 
 _SEARCH_FUNCTIONS: dict[str, Callable] = {
     'vn':        search_vn,
@@ -55,7 +56,8 @@ class _ColKind(Enum):
 
 
 def _nested_get(obj: Any, path: list[str]) -> Any:
-    """Navigate nested dicts following a key path. Returns None if any step is missing."""
+    """The value at a key path through nested dicts, or None if a step is
+    missing or holds something other than a dict."""
     for key in path:
         if not isinstance(obj, dict):
             return None
@@ -64,14 +66,19 @@ def _nested_get(obj: Any, path: list[str]) -> Any:
 
 
 def _set_nested(obj: dict, path: list[str], value: Any) -> dict:
-    """Return a shallow-merged copy of obj with the key path set to value."""
+    """A copy of `obj` with the key path set to `value`, merging rather than
+    replacing at each level so the keys beside it survive."""
     if len(path) == 1:
         return {**obj, path[0]: value}
     return {**obj, path[0]: _set_nested(obj.get(path[0]) or {}, path[1:], value)}
 
 
 def _col_kind(resource_type: str, column_name: str) -> _ColKind:
-    """Resolve the _ColKind for a column, raising ValueError if it doesn't exist."""
+    """What kind of column this is, or `Rejected` when there is no such column.
+
+    An ARRAY column counts as SCALAR: it is written whole, like the rest, and
+    only a JSONB column supports writing one key inside it.
+    """
     model = MODEL_MAP.get(resource_type)
     if model is None:
         raise Rejected('invalid_request', f"Unknown resource type: {resource_type!r}")
@@ -87,10 +94,10 @@ def _col_kind(resource_type: str, column_name: str) -> _ColKind:
 
 
 def _resolve_field(resource_type: str, field: str) -> tuple[str, str, _ColKind]:
-    """
-    Parse and validate a field path against the model.
-    Returns (column_name, json_tail, kind).
-    Raises ValueError for unknown columns or dotted paths on non-JSONB columns.
+    """A field path split into the column it names and the path inside it.
+
+    Validated here rather than at the write, so a sweep over a whole table is
+    refused before its first request instead of after its last.
     """
     column, _, json_tail = field.partition(".")
     kind = _col_kind(resource_type, column)
@@ -110,7 +117,12 @@ def _build_db_write(
     kind: _ColKind,
     value: Any,
 ) -> dict[str, Any]:
-    """Build the data dict for db_update, with type validation."""
+    """The `db_update` payload for one row, or `TypeError` if the value does not
+    fit the column.
+
+    A write inside a JSONB column has to read the row first: the merge keeps the
+    keys beside the one being written, which only the stored value knows.
+    """
     if value is not None and not json_tail:
         if kind is _ColKind.JSONB and not isinstance(value, (dict, list)):
             raise TypeError(f"Expected dict or list for JSONB, got {type(value).__name__}")
@@ -139,25 +151,20 @@ def backfill_column(
     batch_size: int = _DEFAULT_BATCH_SIZE,
     delay: float = _DEFAULT_DELAY,
 ) -> tuple[int, int]:
-    """
-    Re-fetch a field from the VNDB API for every active record and overwrite the local value.
+    """Re-fetch one field for every active row and write it back. Returns
+    (updated, total).
 
-    Parameters
-    ----------
-    resource_type   One of 'vn', 'release', 'character', 'producer', 'staff', 'tag', 'trait'.
-    field           A single VNDBFields path string, e.g. ``VNDBFields.Staff.GENDER``
-                    (``"gender"``) or ``VNDBFields.VN.IMAGE.SEXUAL`` (``"image.sexual"``).
-                    Must refer to exactly one field — comma-separated lists are not allowed.
-                    A plain name overwrites the column directly (scalar, ARRAY, or full JSONB).
-                    A dotted path (only valid on JSONB columns) triggers a partial-merge write.
-    extract         ``(remote_record) -> value``. Defaults to navigating the field path in
-                    the remote record.
-    overwrite_null  If True, write a null value returned by a successful fetch.
-                    Records that failed to fetch are never written. Default False.
-    batch_size      Records per API request (max 100).
-    delay           Seconds to sleep between batch requests.
+    `field` names exactly one field — `gender`, or `image.sexual` for a key
+    inside a JSONB column, where the write merges rather than replaces. A
+    comma-separated list is refused: the extract below navigates a single path,
+    so a list would silently fill the column with the first one.
 
-    Returns (updated, total).
+    `extract` reads the value out of a remote record, and defaults to following
+    `field` through it. `overwrite_null` decides whether a fetch that succeeded
+    and returned nothing clears the column; a fetch that failed never writes
+    either way. `batch_size` is rows per API request (100 is the API's own
+    ceiling) and `delay` the pause between them, which is what keeps a sweep
+    from spending the whole rate limit.
     """
     if ',' in field:
         raise Rejected('invalid_request',
@@ -169,7 +176,7 @@ def backfill_column(
                          page=1, limit=batch_size, count=True)
     total = first.get('count', 0)
     if not total:
-        print(f"[backfill] '{resource_type}.{field}' — no active records.")
+        logger.info(f"[VNDB] backfill {resource_type}.{field}: no active rows")
         return 0, 0
 
     req_fields = ['id', field]
@@ -193,7 +200,8 @@ def backfill_column(
             response = search_fn(filters=_id_filter(filter_set, ids),
                                  fields=req_fields, results=batch_size, count=False)
         except Exception as e:
-            print(f"  fetch failed (batch {batch_num}/{num_batches}): {e}")
+            logger.warning(f"[VNDB] backfill {resource_type}.{field}: batch "
+                           f"{batch_num}/{num_batches} could not be fetched: {e}")
         else:
             for item in response.get('results', []):
                 id_ = item['id']
@@ -203,17 +211,19 @@ def backfill_column(
                 try:
                     write = _build_db_write(resource_type, id_, column, json_tail, kind, value)
                 except TypeError as e:
-                    print(f"  type error {resource_type}/{id_} '{field}': {e}")
+                    logger.warning(f"[VNDB] backfill skipped {resource_type} {id_}: {e}")
                     continue
-                if TEST:
-                    print(f"  [TEST] {resource_type}/{id_} {field} = {value!r}")
+                if _TEST:
+                    logger.info(f"[VNDB] backfill would set {resource_type} {id_} "
+                                f"{field} = {value!r}")
                     updated += 1
                 # source=None: a single-field maintenance write must not stamp
                 # crawled_at — the rest of the row wasn't refreshed.
                 elif db_update(resource_type, id_, write, source=None) is not None:
                     updated += 1
 
-        print(f"[backfill] {resource_type}.{field} — batch {batch_num}/{num_batches}, {updated} updated so far.")
+        logger.info(f"[VNDB] backfill {resource_type}.{field}: batch "
+                    f"{batch_num}/{num_batches}, {updated} updated so far")
 
         if not local_page.get('more'):
             break
@@ -222,7 +232,8 @@ def backfill_column(
             page=batch_num + 1, limit=batch_size, count=False,
         )
 
-    print(f"[backfill] Done — {updated}/{total} updated.")
+    logger.info(f"[VNDB] backfill {resource_type}.{field}: done, "
+                f"{updated}/{total} updated")
     return updated, total
 
 

@@ -1,4 +1,4 @@
-"""Small JSON files that outlive a run — crawl cursors, dump timestamps.
+"""Small JSON files that outlive a run, such as the crawl cursors.
 
 Written through a rename so a crash cannot leave one half-written: the reader
 falls back to an empty state, and an empty state costs whatever the file was

@@ -5,7 +5,7 @@ from flask_migrate import Migrate
 from .config import Config
 from .errors import http_error_code
 from .extensions import (
-    ExtSQLAchemy, ExtCache, ExtCelery, ExtAPScheduler, ExtRedis
+    ExtSQLAlchemy, ExtCache, ExtCelery, ExtAPScheduler, ExtRedis
 )
 
 
@@ -29,7 +29,7 @@ def create_app(config_class=Config, enable_scheduler=True):
         "max_age": 600
     }})
 
-    db = ExtSQLAchemy(app)
+    db = ExtSQLAlchemy(app)
     migrate = Migrate(app, db)
     cache = ExtCache(app)
 

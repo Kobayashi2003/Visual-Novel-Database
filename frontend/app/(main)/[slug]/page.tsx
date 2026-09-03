@@ -34,8 +34,10 @@ import {
 } from "@/components/card/CardsGrid"
 
 // `/v`, `/c`, … → search results; `/v123`, `/c45`, … → detail pages.
-const SEARCH_TYPES = /^[vrpcsgit]$/
-const DETAIL_TYPES = /^[vrpcsgit]\d+$/
+// The same seven letters as COLLECTION_TYPES, because those are the types
+// `fetchFn` below can fetch and the backend will accept.
+const SEARCH_TYPES = /^[vrpcsgi]$/
+const DETAIL_TYPES = /^[vrpcsgi]\d+$/
 
 
 /* ─── Search results ───────────────────────────────────────────────────────── */

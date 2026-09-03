@@ -33,6 +33,26 @@ def handle_library_error(e):
     return jsonify(error=e.error_code, message=e.message), e.http_status
 
 
+_TRUE = {'true', '1', 'yes', 'on'}
+_FALSE = {'false', '0', 'no', 'off'}
+
+def parse_bool(raw, default: bool) -> bool:
+    """A query parameter as a boolean, or the default when it was not sent.
+
+    A value that is neither is refused rather than replaced by the default:
+    `?sync=perhaps` would otherwise answer with a task id where the caller asked
+    for a result, and nothing in the reply would say so.
+    """
+    if raw is None:
+        return default
+    value = str(raw).strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    abort(400, description=f"Expected true or false, got: {raw!r}")
+
+
 def _music_folder() -> str:
     return current_app.config['MUSIC_FOLDER']
 
@@ -186,7 +206,7 @@ def upload_tracks(raw_id: str):
     if not files:
         abort(400, description="Attach at least one file under the 'files' field.")
 
-    replace = request.args.get('replace', 'false').lower() in ('true', '1', 'yes')
+    replace = parse_bool(request.args.get('replace'), False)
     stored = [store_track(_music_folder(), vnid, f.filename, f, replace=replace)
               for f in files]
     return jsonify({'id': vnid, 'stored': stored}), 201

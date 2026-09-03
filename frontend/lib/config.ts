@@ -7,7 +7,11 @@ import { ENUMS } from "@/lib/enums"
 // A filter field is rendered as text / number / select / date. Some kinds
 // support comparison operators (=, <, >, …); see `OPERATORS` below.
 
-export interface BaseField { value: string; label: string }
+// `only` marks a field one backend cannot apply: the mirror holds no anime or
+// review data, and the API has no notion of lie-flagged tags. The other backend
+// refuses such a filter rather than answering emptily, so the form must not
+// offer it — see `availableFilters`.
+export interface BaseField { value: string; label: string; only?: "local" | "remote" }
 export interface TextField extends BaseField { allowEmpty?: boolean; placeholder?: string }
 export interface NumberField extends BaseField { integer?: boolean; comparable?: boolean; placeholder?: string }
 export interface SelectField extends BaseField { default?: string; comparable?: boolean; iconType?: "LANGUAGE" | "PLATFORM"; options: { value: string; label: string }[] }
@@ -156,9 +160,9 @@ export const searchFilters: Record<string, { text?: TextField[]; number?: Number
       { value: "length", label: "Length", default: "any", options: [{ value: "any", label: "Any" }, ...Object.entries(ENUMS.LENGTH).map(([k, v]) => ({ value: k, label: v }))] },
       { value: "devstatus", label: "Dev Status", default: "any", options: [{ value: "any", label: "Any" }, ...Object.entries(ENUMS.DEVSTATUS).map(([k, v]) => ({ value: k, label: v }))] },
       { value: "has_description", label: "Has Description", default: "any", options: [{ value: "any", label: "Any" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] },
-      { value: "has_anime", label: "Has Anime", default: "any", options: [{ value: "any", label: "Any" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] },
+      { value: "has_anime", label: "Has Anime", default: "any", only: "remote", options: [{ value: "any", label: "Any" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] },
       { value: "has_screenshot", label: "Has Screenshot", default: "any", options: [{ value: "any", label: "Any" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] },
-      { value: "has_review", label: "Has Review", default: "any", options: [{ value: "any", label: "Any" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] },
+      { value: "has_review", label: "Has Review", default: "any", only: "remote", options: [{ value: "any", label: "Any" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] },
     ],
     date: [{ value: "released", label: "Release Date", availableFormats: ["YYYY-MM-DD", "YYYY-MM", "YYYY"], comparable: true, placeholder: "YYYY-MM-DD / YYYY-MM / YYYY" }],
   },
@@ -235,7 +239,7 @@ export const searchFilters: Record<string, { text?: TextField[]; number?: Number
     select: [
       { value: "lang", label: "Language", default: "any", iconType: "LANGUAGE", options: [{ value: "any", label: "Any" }, ...Object.entries(ENUMS.LANGUAGE).map(([k, v]) => ({ value: k, label: v }))] },
       { value: "gender", label: "Gender", default: "any", options: [{ value: "any", label: "Any" }, { value: "m", label: "Male" }, { value: "f", label: "Female" }] },
-      { value: "role", label: "Role", default: "any", options: [{ value: "any", label: "Any" }, ...Object.entries(ENUMS.STAFF_ROLE).map(([k, v]) => ({ value: k, label: v }))] },
+      { value: "role", label: "Role", default: "any", only: "remote", options: [{ value: "any", label: "Any" }, ...Object.entries(ENUMS.STAFF_ROLE).map(([k, v]) => ({ value: k, label: v }))] },
       { value: "ismain", label: "Is Main", default: "any", options: [{ value: "any", label: "Any" }, { value: "1", label: "Yes" }, { value: "0", label: "No" }] },
     ],
   },
@@ -248,6 +252,22 @@ export const searchFilters: Record<string, { text?: TextField[]; number?: Number
 }
 
 /* ─── Filter state helpers ─────────────────────────────────────────────────── */
+
+// The fields of `type` that `source` can actually apply. `both` keeps every
+// field: it routes each query to whichever backend can serve it.
+export function availableFilters(type: string, source?: string) {
+  const f = searchFilters[type] || {}
+  const usable = <T extends BaseField>(fields?: T[]): T[] =>
+    (fields || []).filter(x => !x.only || !source || source === "both" || x.only === source)
+  return {
+    entityGroups: f.entityGroups || [],
+    entity: usable(f.entity),
+    text: usable(f.text),
+    number: usable(f.number),
+    select: usable(f.select),
+    date: usable(f.date),
+  }
+}
 
 // Produces a blank `FilterState` for the given entity type, seeded with the
 // per-field defaults declared in `searchFilters`.
@@ -271,39 +291,44 @@ export function buildInitialState(type: string): FilterState {
 // Reduces a `FilterState` to a flat `{ field: value }` map suitable for the
 // API query string. Invalid / empty entries are dropped silently.
 export function buildFilterParams(type: string, state: FilterState, source?: string): Record<string, string> {
-  const f = searchFilters[type] || {}
+  const f = availableFilters(type, source)
   const result: Record<string, string> = {}
 
+  // The state outlives a change of source, so a value entered for a field this
+  // source cannot apply is still in it. It must not travel with the query.
+  const offered = new Set(
+    [...f.text, ...f.number, ...f.select, ...f.date, ...f.entity].map(x => x.value))
+
   for (const [k, v] of Object.entries(state.text)) {
-    if (v.trim()) result[k] = v.trim()
+    if (offered.has(k) && v.trim()) result[k] = v.trim()
   }
   for (const [k, v] of Object.entries(state.number)) {
-    const field = f.number?.find(x => x.value === k)
+    const field = f.number.find(x => x.value === k)
     if (field && isValidNumber(v, false, field.integer)) result[k] = v.trim()
   }
   for (const [k, v] of Object.entries(state.numberComparable)) {
-    const field = f.number?.find(x => x.value === k)
+    const field = f.number.find(x => x.value === k)
     const combined = `${v.operator} ${v.number}`.trim()
     if (field && isValidNumber(combined, true, field.integer)) result[k] = combined
   }
   for (const [k, v] of Object.entries(state.select)) {
-    if (isValidSelect(v, false)) result[k] = v
+    if (offered.has(k) && isValidSelect(v, false)) result[k] = v
   }
   for (const [k, v] of Object.entries(state.selectComparable)) {
     const combined = `${v.operator} ${v.value}`.trim()
-    if (isValidSelect(combined, true)) result[k] = combined
+    if (offered.has(k) && isValidSelect(combined, true)) result[k] = combined
   }
   for (const [k, v] of Object.entries(state.date)) {
-    const field = f.date?.find(x => x.value === k)
+    const field = f.date.find(x => x.value === k)
     if (field && field.availableFormats.some(fmt => isValidDate(v, fmt, false))) result[k] = v.trim()
   }
   for (const [k, v] of Object.entries(state.dateComparable)) {
     const combined = `${v.operator} ${v.date}`.trim()
-    const field = f.date?.find(x => x.value === k)
+    const field = f.date.find(x => x.value === k)
     if (field && field.availableFormats.some(fmt => isValidDate(combined, fmt, true))) result[k] = combined
   }
   for (const [k, v] of Object.entries(state.entity || {})) {
-    if (v.length === 0) continue
+    if (v.length === 0 || !offered.has(k)) continue
     const ids = v.map(item => item.id).join(",")
     const opt = state.entityOptions?.[k]
     if (opt?.spoil) {

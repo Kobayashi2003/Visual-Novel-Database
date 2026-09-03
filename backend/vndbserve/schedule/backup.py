@@ -38,7 +38,7 @@ def backup_database_schedule():
 
     try:
         subprocess.run(command, env=env, check=True, capture_output=True, text=True)
-        logger.info(f"[VNDB] Database backup created successfully")
+        logger.info("[VNDB] Database backup created successfully")
     except Exception:
         logger.exception("Database backup failed")
 

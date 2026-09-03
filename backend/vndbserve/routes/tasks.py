@@ -41,7 +41,16 @@ def get_task_result(tid: str):
 
 @task_bp.route('/<string:tid>', methods=['POST'])
 def revoke_task(tid: str):
-    if not celery.backend.get(f'celery-task-meta-{tid}'):
-        return jsonify(error="not_found", message=f"No task with id {tid}."), 404
-    celery.AsyncResult(tid).revoke(terminate=True)
+    """Ask the queue not to run this task.
+
+    The id is not checked first: the result backend only holds a task once it
+    has finished, so an id still queued and an id that never existed are
+    indistinguishable — and refusing the first is refusing the only case this
+    route exists for. Revoking an id the queue does not know costs nothing.
+
+    Not `terminate=True`: the workers run a thread pool, which cannot kill a
+    running job. This stops a task that has not started yet; one already
+    running finishes.
+    """
+    celery.AsyncResult(tid).revoke()
     return jsonify(message="Task revoked"), 200

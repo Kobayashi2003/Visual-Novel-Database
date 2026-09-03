@@ -10,13 +10,13 @@ from imgserve.tasks.images import (
     create_image_task, update_image_task,
     delete_image_task, download_images_task,
 )
-from .common import execute_task, serve_or_fetch_image
+from .common import execute_task, parse_bool, serve_or_fetch_image
 
 image_bp = Blueprint('images', __name__, url_prefix='/')
 
 
 def get_sync_param():
-    return request.args.get('sync', 'true').lower() == 'true'
+    return parse_bool(request.args.get('sync'), True)
 
 
 @image_bp.route('', methods=['POST'])
